@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV Processor</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      padding: 20px; 
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: #f5f5f5;
+    }
+    .content { 
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .progress-container { 
+      margin-top: 10px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .progress-bar { 
+      height: 20px; 
+      background: #007bff; 
+      width: 0%; 
+      transition: width 0.5s;
+      border-radius: 10px;
+    }
+    .input-group { 
+      margin-bottom: 15px;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      max-height: 300px;
+    }
+    .error {
+      color: #dc3545;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+    .success {
+      color: #28a745;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <h1>CSV Processor 📊</h1>
+    <p>Upload and process your CSV files with ease.</p>
+
+    <h2>Upload CSV File</h2>
+    <div class="input-group">
+      <label>Select CSV File</label>
+      <input type="file" id="csvUpload" accept=".csv" />
+    </div>
+    <button onclick="uploadCSV()">Upload</button>
+    <div id="uploadStatus"></div>
+    <br /><br />
+
+    <h2>Process CSV</h2>
+    <div class="input-group">
+      <label>Start Row:</label>
+      <input type="number" id="startRow" value="0" min="0" />
+    </div>
+    <div class="input-group">
+      <label>Row Count (max rows to process):</label>
+      <input type="number" id="rowCount" value="99999" min="1" />
+    </div>
+    <div class="input-group">
+      <label>Priority:</label>
+      <input type="number" id="priority" value="1" min="1" />
+    </div>
+
+    <button onclick="processCSV()">Process CSV</button>
+    <br /><br />
+
+    <h3>Progress</h3>
+    <div class="progress-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <p id="progressText">Waiting for processing...</p>
+
+    <h3>Processing Results</h3>
+    <pre id="processingResults">Results will appear here after processing.</pre>
+  </div>
+
+  <script>
+    let uploadedFileId = '';
+    let currentProgressInterval = null;
+
+    function uploadCSV() {
+      const fileInput = $('#csvUpload')[0].files[0];
+      if (!fileInput) {
+        showUploadStatus("Please select a CSV file", "error");
+        return;
+      }
+
+      let formData = new FormData();
+      formData.append("csv", fileInput);
+
+      showUploadStatus("Uploading...", "");
+      
+      $.ajax({
+        url: "/upload",
+        type: "POST",
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function (response) {
+          uploadedFileId = response.data.id;
+          showUploadStatus(`File '${response.data.filename}' uploaded successfully!`, "success");
+        },
+        error: function (error) {
+          showUploadStatus(
+            "Upload failed: " + (error.responseJSON?.message || "Unknown error"), 
+            "error"
+          );
+        }
+      });
+    }
+
+    function showUploadStatus(message, type) {
+      $('#uploadStatus').html(`<div class="${type}">${message}</div>`);
+    }
+
+    function processCSV() {
+      if (!uploadedFileId) {
+        showUploadStatus("No CSV file uploaded yet.", "error");
+        return;
+      }
+
+      let startRow = parseInt($('#startRow').val()) || 0;
+      let rowCount = parseInt($('#rowCount').val()) || 99999;
+      let priority = parseInt($('#priority').val()) || 1;
+
+      let data = { startRow, rowCount, priority };
+
+      $.ajax({
+        url: `/process/${uploadedFileId}`,
+        type: "POST",
+        contentType: "application/json",
+        data: JSON.stringify(data),
+        success: function (response) {
+          $('#processingResults').text(JSON.stringify(response.data, null, 2));
+          
+          if (response.data.status === 'processing' || 
+              response.data.status === 'queued') {
+            $('#progressText').text('Processing started...');
+            resetProgress();
+            trackProgress(uploadedFileId);
+          }
+        },
+        error: function (error) {
+          $('#processingResults').text(
+            "Failed to start processing: " + 
+            JSON.stringify(error.responseJSON || { message: "Unknown error" }, null, 2)
+          );
+          $('#progressText').text('Processing failed to start');
+        }
+      });
+    }
+
+    function resetProgress() {
+      if (currentProgressInterval) {
+        clearInterval(currentProgressInterval);
+        currentProgressInterval = null;
+      }
+      $('#progressBar').css('width', '0%');
+      $('#progressText').text('Starting process...');
+    }
+
+    function trackProgress(id) {
+      currentProgressInterval = setInterval(() => {
+        $.get(`/progress/${id}`, function (response) {
+          let progress = response.data.progress;
+          let status = response.data.status;
+          
+          $('#progressBar').css('width', progress + '%');
+          $('#progressText').text(`Progress: ${progress}% - ${status}`);
+
+          if (status === 'completed') {
+            clearInterval(currentProgressInterval);
+            currentProgressInterval = null;
+            $('#progressText').text('Processing completed');
+          }
+        }).fail((error) => {
+          clearInterval(currentProgressInterval);
+          currentProgressInterval = null;
+          $('#progressText').text('Failed to fetch progress: ' + 
+            (error.responseJSON?.message || "Unknown error"));
+        });
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
