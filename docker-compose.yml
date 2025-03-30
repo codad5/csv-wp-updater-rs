@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   updater:
     build:
@@ -22,6 +24,9 @@ services:
       - redis
       - rabbitmq
     command: ["cargo", "run"]
+    extra_hosts:
+      - "wptest.local:192.168.97.83"
+      - "another.local:192.168.97.83"
 
   api:
     build:
@@ -46,6 +51,9 @@ services:
       - rabbitmq
       - updater
     command: ["npm", "run", "dev"]
+    extra_hosts:
+      - "wptest.local:192.168.97.83"
+      - "another.local:192.168.97.83"
 
   redis:
     image: redis:7-alpine
@@ -70,7 +78,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-
 
 volumes:
   cargo-cache:
