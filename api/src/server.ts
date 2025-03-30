@@ -5,7 +5,7 @@ import { upload, uploadExists, processedExists, getProcessedFilePath, getUploadF
 import { ResponseHelper } from '@/helpers/response';
 import mqConnection, { Queue } from '@/lib/rabbitmq';
 import { ProcessResponse, UploadResponse, ProgressResponse } from '@/types/response';
-import { ProcessOptions } from '@/types/request';
+import { ProcessOptions, WordPressFieldMapping } from '@/types/request';
 import {
     getFileProgress,
     isFileInProcessing,
@@ -14,6 +14,7 @@ import {
 } from '@/lib/redis';
 import fs from 'fs';
 import path from 'path';
+import csv from 'csv-parser';
 
 dotenv.config();
 
@@ -43,6 +44,41 @@ app.use((req, res, next) => {
 
 app.use('/', express.static(path.join(__dirname, '../public')));
 
+// Get CSV Headers
+app.get('/columns/:id', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const fileName = `${id}.csv`;
+        
+        if (!uploadExists(fileName)) {
+            throw new Error('File not found');
+        }
+        
+        const filePath = getUploadFilePath(fileName);
+        const headers: string[] = [];
+        
+        fs.createReadStream(filePath)
+            .pipe(csv())
+            .on('headers', (headerList) => {
+                headers.push(...headerList);
+                ResponseHelper.success({ headers });
+            })
+            .on('error', (error) => {
+                ResponseHelper.error('Failed to read CSV headers', { message: error.message });
+            })
+            .on('end', () => {
+                if (headers.length === 0) {
+                    ResponseHelper.error('No headers found in CSV', { message: 'CSV file has no headers' });
+                }
+            });
+            
+    } catch (error) {
+        ResponseHelper.error(
+            (error as Error).message ?? 'Failed to read CSV headers',
+            { message: (error as Error).message ?? 'Failed to read CSV headers' }
+        );
+    }
+});
 
 app.post('/upload', upload.single('csv'), async (req: Request, res: Response) => {
     try {
@@ -66,10 +102,19 @@ app.post('/upload', upload.single('csv'), async (req: Request, res: Response) =>
 app.post('/process/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { priority = 1, startRow = 0, rowCount = 99999 } = req.body as ProcessOptions;
+        const { 
+            priority = 1, 
+            startRow = 0, 
+            rowCount = 99999,
+            wordpress_field_mapping 
+        } = req.body as ProcessOptions;
 
         if (!uploadExists(`${id}.csv`)) {
             throw new Error('File not found');
+        }
+
+        if (!wordpress_field_mapping || Object.keys(wordpress_field_mapping).length === 0) {
+            throw new Error('Field mapping is required');
         }
 
         if (await fileProcessingService.isFileInProcessing(id)) {
@@ -80,7 +125,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
                 id,
                 file: `${id}.csv`,
                 message: 'File is already in processing',
-                options: { priority },
+                options: { priority, wordpress_field_mapping },
                 status: 'processing',
                 progress
             });
@@ -91,6 +136,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
             file: `${id}.csv`,
             start_row: startRow,
             row_count: rowCount,
+            wordpress_field_mapping: wordpress_field_mapping
         });
 
         if (!d) {
@@ -103,7 +149,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
             id,
             file: `${id}.csv`,
             message: 'File processing started',
-            options: {  priority },
+            options: { priority, wordpress_field_mapping },
             status: 'queued',
             progress: 0,
             queuedAt: new Date()
@@ -140,7 +186,6 @@ app.get('/progress/:id', async (req: Request, res: Response) => {
         );
     }
 });
-
 
 // Start server only after establishing connections
 async function startServer() {

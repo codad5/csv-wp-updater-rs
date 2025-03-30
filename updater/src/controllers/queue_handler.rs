@@ -48,7 +48,7 @@ impl RabbitMQFileProcessor {
                         let permit = semaphore.clone().acquire_owned().await.unwrap();
                         task::spawn(async move {
                             if let Err(processing_error) = process_woocommerce_csv(
-                                message.clone().file,
+                                message.clone(),
                                 std::env::var("WOOCOMMERCE_URL").unwrap(),
                                 std::env::var("WOOCOMMERCE_CONSUMER_KEY").unwrap(),
                                 std::env::var("WOOCOMMERCE_CONSUMER_SECRET").unwrap(),

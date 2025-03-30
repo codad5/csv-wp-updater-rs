@@ -2,7 +2,7 @@ mod worker;
 mod libs;
 mod helper;
 mod controllers;
-// mod types;
+mod types;
 
 #[tokio::main]
 async fn main() {
