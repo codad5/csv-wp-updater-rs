@@ -261,7 +261,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     
     let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let semaphore = Arc::new(Semaphore::new(10)); // Limit to 5 concurrent tasks
+    let semaphore = Arc::new(Semaphore::new(40)); // Limit to 5 concurrent tasks
     let woo_client = self.woocommerce_client.clone();
     let redis_client = self.redis_client.clone();
     let progress_clone = Arc::clone(&self.progress);
