@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
+use serde::{Serializer, Deserializer};
+use std::fmt::Display;
+use std::str::FromStr;
 
 use crate::helper::file_helper::get_upload_path;
 use crate::libs::redis::{get_progress, FileProcessingManager};
@@ -19,10 +22,14 @@ use tokio::sync::Semaphore;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct WooCommerceProduct {
   // Core product details
+  #[serde(
+      skip_serializing_if = "String::is_empty",
+      serialize_with = "serialize_id_as_number",
+      deserialize_with = "deserialize_id_as_string"
+  )]
+  id: String,
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  id: String,
   #[serde(skip_serializing_if = "String::is_empty")]
   sku: String,
   #[serde(skip_serializing_if = "String::is_empty")]
@@ -267,6 +274,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     // print number of records in the CSV file 
     
     let mut count = 0;
+    let mut skus: Vec<String> = vec![];
     let mut iter = rdr.records();
     while let Some(result) = iter.next() {
       let new_self = Arc::clone(&new_self);
@@ -284,6 +292,13 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         println!("Processing record... counting 2");
         
         let sku = record.get(0).unwrap_or("").to_string();
+        // if sku already in skus skip it
+        if skus.contains(&sku) {
+            println!("SKU {} already processed, skipping...", sku);
+            continue;
+        } else {
+            skus.push(sku.clone());
+        }
         let record_type = record.get(24).unwrap_or("").to_string();
         println!("Processing record : {:?}", record);
         println!("Record type: {}", record_type);
@@ -325,16 +340,6 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
               };
               
               println!("Redis connection established for SKU: {}", sku);
-              // Check Redis for existing SKU
-              
-              // Skip if SKU already exists
-              // if !exists {
-              //     println!("SKU already exists in Redis: {}", sku);
-              //     let mut progress = progress_clone.lock().await;
-              //     // progress.skipped_rows += 1;
-              //     progress.processed_rows += 1;
-              //     return;
-              // }
               
               // Create product
               let mut new_product_update = match Self::woo_product_builder(&row_map_clone) {
@@ -585,6 +590,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
       .post(&format!("{}/wp-json/wc/v3/products/{}", self.base_url, product.id))
       .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
       .body(json_body)
+      .header("Content-Type", "application/json")
       .send()
       .await?;
     let body = res.text().await?; // Get response as a string
@@ -600,16 +606,17 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     // amke id empty
     let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-    println!("Creating product with JSON body: {}", json_body);
+    println!("Creating product with JSON body: {} for product id {} and name {}", json_body, product.id, product.name);
     let res = self
       .woocommerce_client
       .post(&format!("{}/wp-json/wc/v3/products", self.base_url))
       .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
       .body(json_body)
+      .header("Content-Type", "application/json")
       .send()
       .await?;
     let body = res.text().await?; // Get response as a string
-    println!("Response body from create_product: {}", body);
+    println!("Response body from create_product: {} for product id {} and name {}", body, product.id, product.name);
     let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
     
 
@@ -617,21 +624,30 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
   }
 
   async fn fetch_product_by_sku(
-    &self,
-    sku: &str,
+      &self,
+      sku: &str,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
-    let res = self
-      .woocommerce_client
-      .get(&format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku))
-      .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
-      .send()
-      .await?;
-    let body = res.text().await?; // Get response as a string
-    println!("Response body from fetch_product_by_sku: {}", body);
-    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+      let res = self
+          .woocommerce_client
+          .get(&format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku))
+          .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+          .send()
+          .await?;
 
-    Ok(products)
+      let body = res.text().await?; // Get response as a string
+      println!("Response body from fetch_product_by_sku: {}", body);
+
+      let products: Vec<WooCommerceProduct> = serde_json::from_str(&body)?; // Parse JSON manually
+
+      // If the list is empty, return an error
+      if products.is_empty() {
+          return Err(format!("No product found with SKU: {}", sku).into());
+      }
+
+      // Return the first product
+      Ok(products.into_iter().next().unwrap())
   }
+
 
   async fn get_progress(&self) -> ProcessingProgress {
     self.progress.lock().await.clone()
@@ -683,3 +699,40 @@ pub async fn process_woocommerce_csv(
   }
 }
 
+
+
+// Function to serialize ID as a number
+pub fn serialize_id_as_number<S, T>(id: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: AsRef<str> + Display,
+{
+    match id.as_ref().parse::<i64>() {
+        Ok(num) => serializer.serialize_i64(num),
+        Err(_) => serializer.serialize_str(id.as_ref()),
+    }
+}
+
+// Function to deserialize ID as a string
+pub fn deserialize_id_as_string<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + serde::Deserialize<'de>,
+    <T as FromStr>::Err: Display,
+{
+    use serde::de::Error;
+    
+    // First try as a string
+    let value = serde_json::Value::deserialize(deserializer)?;
+    
+    match value {
+        serde_json::Value::String(s) => {
+            T::from_str(&s).map_err(|e| D::Error::custom(format!("Failed to parse string: {}", e)))
+        },
+        serde_json::Value::Number(n) => {
+            let num_str = n.to_string();
+            T::from_str(&num_str).map_err(|e| D::Error::custom(format!("Failed to parse number: {}", e)))
+        },
+        _ => Err(D::Error::custom("Expected string or number")),
+    }
+}

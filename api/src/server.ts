@@ -22,7 +22,7 @@ const app: Application = express();
 const port = process.env.API_PORT || 3000;
 
 // Constants for time estimation
-const AVERAGE_ROW_PROCESS_TIME_MS = 25; // Milliseconds per row (adjust based on your Rust program's performance)
+const AVERAGE_ROW_PROCESS_TIME_MS = 150; // Milliseconds per row (adjust based on your Rust program's performance)
 
 // Initialize connections before starting server
 async function initializeConnections() {
