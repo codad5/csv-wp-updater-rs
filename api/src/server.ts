@@ -21,6 +21,9 @@ dotenv.config();
 const app: Application = express();
 const port = process.env.API_PORT || 3000;
 
+// Constants for time estimation
+const AVERAGE_ROW_PROCESS_TIME_MS = 25; // Milliseconds per row (adjust based on your Rust program's performance)
+
 // Initialize connections before starting server
 async function initializeConnections() {
     try {
@@ -31,6 +34,51 @@ async function initializeConnections() {
         console.error('Failed to connect to RabbitMQ:', error);
         return false;
     }
+}
+
+// Helper function to count total rows in CSV
+async function countCsvRows(filePath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+        let rowCount = 0;
+        fs.createReadStream(filePath)
+            .pipe(csv())
+            .on('data', () => {
+                rowCount++;
+            })
+            .on('error', (error) => {
+                reject(error);
+            })
+            .on('end', () => {
+                resolve(rowCount);
+            });
+    });
+}
+
+// Helper function to calculate estimated processing time
+function calculateEstimatedTime(totalRows: number): {
+    estimatedTimeMs: number;
+    estimatedTimeFormatted: string;
+} {
+    const estimatedTimeMs = totalRows * AVERAGE_ROW_PROCESS_TIME_MS;
+    
+    // Format the time in a human-readable format
+    let formattedTime = '';
+    if (estimatedTimeMs < 1000) {
+        formattedTime = `${estimatedTimeMs}ms`;
+    } else if (estimatedTimeMs < 60000) {
+        formattedTime = `${Math.round(estimatedTimeMs / 1000)}s`;
+    } else if (estimatedTimeMs < 3600000) {
+        formattedTime = `${Math.round(estimatedTimeMs / 60000)}m ${Math.round((estimatedTimeMs % 60000) / 1000)}s`;
+    } else {
+        const hours = Math.floor(estimatedTimeMs / 3600000);
+        const minutes = Math.round((estimatedTimeMs % 3600000) / 60000);
+        formattedTime = `${hours}h ${minutes}m`;
+    }
+    
+    return {
+        estimatedTimeMs,
+        estimatedTimeFormatted: formattedTime
+    };
 }
 
 // Middleware
@@ -109,7 +157,8 @@ app.post('/process/:id', async (req: Request, res: Response) => {
             wordpress_field_mapping 
         } = req.body as ProcessOptions;
 
-        if (!uploadExists(`${id}.csv`)) {
+        const fileName = `${id}.csv`;
+        if (!uploadExists(fileName)) {
             throw new Error('File not found');
         }
 
@@ -117,26 +166,40 @@ app.post('/process/:id', async (req: Request, res: Response) => {
             throw new Error('Field mapping is required');
         }
 
+        // Get the actual CSV file path
+        const filePath = getUploadFilePath(fileName);
+        
+        // Count total rows in the CSV
+        const totalEntries = await countCsvRows(filePath);
+        
+        // Calculate estimated processing time based on row count
+        const { estimatedTimeMs, estimatedTimeFormatted } = calculateEstimatedTime(
+            Math.min(totalEntries, rowCount)
+        );
+
         if (await fileProcessingService.isFileInProcessing(id)) {
             console.log('File is already in processing');
             const progress = await fileProcessingService.getFileProgress(id) ?? 0;
             
             ResponseHelper.success<ProcessResponse>({
                 id,
-                file: `${id}.csv`,
+                file: fileName,
                 message: 'File is already in processing',
                 options: { priority, wordpress_field_mapping },
                 status: 'processing',
-                progress
+                progress,
+                totalEntries,
+                estimatedTimeMs,
+                estimatedTime: estimatedTimeFormatted
             });
             return;
         }
         
         const d = await mqConnection.sendToQueue(Queue.CSV_UPLOAD, {
-            file: `${id}.csv`,
+            file: fileName,
             start_row: startRow,
             row_count: rowCount,
-            wordpress_field_mapping: wordpress_field_mapping
+            wordpress_field_mapping: wordpress_field_mapping,
         });
 
         if (!d) {
@@ -147,12 +210,15 @@ app.post('/process/:id', async (req: Request, res: Response) => {
 
         ResponseHelper.success<ProcessResponse>({
             id,
-            file: `${id}.csv`,
+            file: fileName,
             message: 'File processing started',
             options: { priority, wordpress_field_mapping },
             status: 'queued',
             progress: 0,
-            queuedAt: new Date()
+            queuedAt: new Date(),
+            totalEntries,
+            estimatedTimeMs,
+            estimatedTime: estimatedTimeFormatted
         });
     } catch (error) {
         ResponseHelper.error(
@@ -165,19 +231,34 @@ app.post('/process/:id', async (req: Request, res: Response) => {
 app.get('/progress/:id', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+        const fileName = `${id}.csv`;
 
-        if (!uploadExists(`${id}.csv`)) {
+        if (!uploadExists(fileName)) {
             throw new Error('File not found');
         }
 
         const progress = await fileProcessingService.getFileProgress(id);
         const status = await fileProcessingService.isFileInProcessing(id) ? 'processing' : 'completed';
+        
+        // Get the actual CSV file path
+        const filePath = getUploadFilePath(fileName);
+        
+        // Count total rows in the CSV if needed
+        const totalEntries = await countCsvRows(filePath);
+        
+        // Calculate remaining time based on progress
+        const completedPercentage = progress ? progress / 100 : 0;
+        const remainingEntries = totalEntries * (1 - completedPercentage);
+        const { estimatedTimeMs, estimatedTimeFormatted } = calculateEstimatedTime(remainingEntries);
 
         ResponseHelper.success<ProgressResponse>({
             id,
             progress: progress ?? 0,
             status,
-            message: 'Progress retrieved successfully'
+            message: 'Progress retrieved successfully',
+            totalEntries,
+            estimatedTimeRemaining: estimatedTimeFormatted,
+            estimatedTimeRemainingMs: estimatedTimeMs
         });
     } catch (error) {
         ResponseHelper.error(

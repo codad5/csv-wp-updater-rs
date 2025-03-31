@@ -1,4 +1,4 @@
-import { ProcessedFile, Status } from "./queue";
+import { Status } from "./queue";
 import { ProcessOptions } from "./request";
 
 export interface SuccessResponse<T> {
@@ -30,6 +30,9 @@ export interface ProcessResponse {
     progress: number;
     status?: Status;
     queuedAt?: Date;
+    totalEntries?: number;
+    estimatedTimeMs?: number;
+    estimatedTime?: string;
 }
 
 export interface ProgressResponse {
@@ -37,14 +40,12 @@ export interface ProgressResponse {
     progress: number;
     status: Status;
     message?: string;
+    totalEntries?: number;
+    estimatedTimeRemaining?: string;
+    estimatedTimeRemainingMs?: number;
 }
 
-export interface FinalResponse {
-    id: string;
-    content: ProcessedFile;
-    message: string;
-    status: Status;
-}
+
 
 
 
