@@ -32,6 +32,13 @@
       transition: width 0.5s;
       border-radius: 10px;
     }
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+      font-size: 14px;
+      color: #555;
+    }
     .input-group { 
       margin-bottom: 15px;
     }
@@ -201,7 +208,10 @@
       <div class="progress-container">
         <div class="progress-bar" id="progressBar"></div>
       </div>
-      <p id="progressText">Waiting for processing...</p>
+      <div class="progress-info">
+        <span id="progressText">Waiting for processing...</span>
+        <span id="processTimer">00:00:00</span>
+      </div>
 
       <h3>Processing Results</h3>
       <pre id="processingResults">Results will appear here after processing.</pre>
@@ -212,6 +222,8 @@
     let uploadedFileId = '';
     let csvColumns = [];
     let currentProgressInterval = null;
+    let timerInterval = null;
+    let startTime = null;
     let fieldMapping = {};
 
     // WooCommerce fields from the provided HTML
@@ -337,6 +349,7 @@
         select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
         
         // Add CSV columns as options
+        console.log(csvColumns);
         csvColumns.forEach(column => {
           const option = $('<option>').attr('value', column).text(column);
           
@@ -461,6 +474,7 @@
               response.data.status === 'queued') {
             $('#progressText').text('Processing started...');
             resetProgress();
+            startTimer();
             trackProgress(uploadedFileId);
           }
         },
@@ -479,8 +493,36 @@
         clearInterval(currentProgressInterval);
         currentProgressInterval = null;
       }
+      
+      // Reset timer
+      stopTimer();
+      
       $('#progressBar').css('width', '0%');
       $('#progressText').text('Starting process...');
+      $('#processTimer').text('00:00:00');
+    }
+
+    function startTimer() {
+      stopTimer(); // Clear any existing timer
+      
+      startTime = new Date();
+      $('#processTimer').text('00:00:00');
+      
+      timerInterval = setInterval(() => {
+        const elapsedTime = new Date() - startTime;
+        const hours = Math.floor(elapsedTime / 3600000).toString().padStart(2, '0');
+        const minutes = Math.floor((elapsedTime % 3600000) / 60000).toString().padStart(2, '0');
+        const seconds = Math.floor((elapsedTime % 60000) / 1000).toString().padStart(2, '0');
+        
+        $('#processTimer').text(`${hours}:${minutes}:${seconds}`);
+      }, 1000);
+    }
+
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
     }
 
     function trackProgress(id) {
@@ -492,16 +534,18 @@
           $('#progressBar').css('width', progress + '%');
           $('#progressText').text(`Progress: ${progress}% - ${status}`);
 
-          if (status === 'completed') {
+          if (status === 'completed' || progress >= 100) {
             clearInterval(currentProgressInterval);
             currentProgressInterval = null;
             $('#progressText').text('Processing completed');
+            stopTimer(); // Stop the timer when processing is complete
           }
         }).fail((error) => {
           clearInterval(currentProgressInterval);
           currentProgressInterval = null;
           $('#progressText').text('Failed to fetch progress: ' + 
             (error.responseJSON?.message || "Unknown error"));
+          stopTimer(); // Stop the timer on error
         });
       }, 2000);
     }
