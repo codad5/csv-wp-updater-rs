@@ -1,4 +1,5 @@
 use csv::Reader;
+use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -8,18 +9,20 @@ use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 use crate::helper::file_helper::get_upload_path;
-use crate::libs::redis::get_progress;
+use crate::libs::redis::{get_progress, FileProcessingManager};
 use crate::types::csv_field_woo_mapper::WordPressFieldMapping;
 use crate::worker::{NewFileProcessQueue};
 
 use tokio::sync::Semaphore;
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct WooCommerceProduct {
   // Core product details
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
+  #[serde(skip_serializing_if = "String::is_empty")]
+  id: String,
   #[serde(skip_serializing_if = "String::is_empty")]
   sku: String,
   #[serde(skip_serializing_if = "String::is_empty")]
@@ -57,7 +60,7 @@ struct WooCommerceProduct {
   #[serde(skip_serializing_if = "Option::is_none")]
   shipping_class: Option<String>,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Category {
   id: Option<i32>,
   #[serde(skip_serializing_if = "String::is_empty")]
@@ -66,7 +69,7 @@ struct Category {
   slug: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ProductImage {
   #[serde(skip_serializing_if = "String::is_empty")]
   src: String,
@@ -76,7 +79,7 @@ struct ProductImage {
   alt: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ProductVariation {
   #[serde(skip_serializing_if = "String::is_empty")]
   sku: String,
@@ -88,7 +91,7 @@ struct ProductVariation {
   stock_quantity: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ProductAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
@@ -102,13 +105,79 @@ struct ProductAttribute {
   options: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct VariationAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
   #[serde(skip_serializing_if = "String::is_empty")]
   option: String,
 }
+
+
+impl WooCommerceProduct {
+    /// Merges two WooCommerceProduct instances, with values from `other` taking precedence
+    /// over values from `self` when both exist and are not empty.
+    /// 
+    /// Returns a new WooCommerceProduct instance with the merged values.
+    pub fn merge(&self, other: &WooCommerceProduct) -> WooCommerceProduct {
+        // Helper function to merge Vec collections
+        fn merge_vec<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+            if !b.is_empty() {
+                b.to_vec()
+            } else {
+                a.to_vec()
+            }
+        }
+
+        // Helper function to merge Option values
+        fn merge_option<T: Clone>(a: &Option<T>, b: &Option<T>) -> Option<T> {
+            if b.is_some() {
+                b.clone()
+            } else {
+                a.clone()
+            }
+        }
+
+        // Helper function to merge String values
+        fn merge_string(a: &str, b: &str) -> String {
+            if !b.is_empty() {
+                b.to_string()
+            } else {
+                a.to_string()
+            }
+        }
+
+        WooCommerceProduct {
+            // Core product details
+            name: merge_string(&self.name, &other.name),
+            id: merge_string(&self.id, &other.id),
+            sku: merge_string(&self.sku, &other.sku),
+            regular_price: merge_string(&self.regular_price, &other.regular_price),
+            sale_price: merge_option(&self.sale_price, &other.sale_price),
+            description: merge_string(&self.description, &other.description),
+            short_description: merge_string(&self.short_description, &other.short_description),
+            
+            // Categorization
+            categories: merge_vec(&self.categories, &other.categories),
+            tags: merge_vec(&self.tags, &other.tags),
+            
+            // Images
+            images: merge_vec(&self.images, &other.images),
+            
+            // Variations support
+            variations: merge_vec(&self.variations, &other.variations),
+            
+            // Additional attributes
+            attributes: merge_vec(&self.attributes, &other.attributes),
+            
+            // Stock and shipping
+            manage_stock: merge_option(&self.manage_stock, &other.manage_stock),
+            stock_quantity: merge_option(&self.stock_quantity, &other.stock_quantity),
+            shipping_class: merge_option(&self.shipping_class, &other.shipping_class),
+        }
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ProcessingProgress {
@@ -119,6 +188,7 @@ struct ProcessingProgress {
   new_entries: usize,
 }
 
+#[derive(Debug, Clone)]
 struct WooCommerceProcessor {
   woocommerce_client: Arc<Client>,
   redis_client: redis::Client,
@@ -131,8 +201,23 @@ struct WooCommerceProcessor {
 impl WooCommerceProcessor {
   async fn new(base_url: String, consumer_key: String, consumer_secret: String) -> Self {
     let woocommerce_client = Client::new();
+    let woocommerce_client = match Client::builder()
+            .danger_accept_invalid_certs(true)  // 👈 Ignore SSL errors
+            .build() {
+              Ok(client) => client,
+              Err(e) => {
+                  println!("Error creating WooCommerce client: {:?}", e);
+                  woocommerce_client
+              }
+            };
     let redis_client =
       redis::Client::open("redis://redis:6379/").expect("Failed to create Redis client");
+    // base url but trip off any trailing slash 
+    let base_url = if base_url.ends_with('/') {
+      base_url.trim_end_matches('/').to_string()
+    } else {
+      base_url
+    };
     WooCommerceProcessor {
       woocommerce_client : Arc::new(woocommerce_client),
       redis_client,
@@ -143,128 +228,15 @@ impl WooCommerceProcessor {
     }
   }
 
-  // async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMapping) -> Result<(), Box<dyn std::error::Error>> {
-  //   let mut rdr = Reader::from_path(get_upload_path(file_path))?;
-  //   let mut redis_conn = self.redis_client.get_multiplexed_async_connection().await?;
-  //   println!("Connected to Redis");
-  //   println!("Processing CSV file: {}", file_path);
-  //   // Reset progress
-  //   let mut progress = self.progress.lock().await;
-  //   *progress = ProcessingProgress::default();
-  //   progress.total_rows = rdr.records().count();
-  //   drop(progress);
-
-  //   println!("progress tracking rows");
-
-  //   // Reset reader
-  //   let mut rdr = Reader::from_path(get_upload_path(file_path))?;
-  //   let headers = rdr.headers()?.clone();
-
-  //   // Group rows by parent SKU for handling variations
-  //   // let mut product_groups: HashMap<String, Vec<csv::StringRecord>> = HashMap::new();
-  //   let mut product_groups: HashMap<String, HashMap<String, String>> = HashMap::new();
-  //   println!("Grouping products by SKU...");
-  //   // println!("Total rows: {}", rdr.records().count());
-  //   println!("Processing records...");
-  //   // println!("All records: {:?}", rdr.records());
-  //  let mut iter = rdr.records();
-  //  while let Some(result) = iter.next() {
-  //       println!("Processing record... counting");
-  //       let record = result;
-  //       if record.is_err() {
-  //           println!("Error reading record: {:?}", record);
-  //           continue;
-  //       }
-  //       let record = record.unwrap();
-  //       println!("Processing record: {:?}", record);
-  //       let sku = record.get(0).unwrap_or("").to_string();
-  //       let record_type = record.get(24).unwrap_or("").to_string();
-  //       println!("Record type: {}", record_type);
-  //       println!("Record SKU: {}", sku);
-  //       let reverse_mapping = field_mapping.get_reverse_mapping();
-
-  //       let row_map: HashMap<String, String> = headers
-  //           .iter()
-  //           .zip(record.iter())  // Pair headers with row values
-  //           .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
-  //           .collect();
-
-  //       println!("{:?}", row_map);  // Print each row as a HashMap
-  //       product_groups
-  //           .entry(sku.clone())
-  //           .or_insert_with(HashMap::new)
-  //           .extend(row_map);  // Add the row to the product group
-        
-  //       // if record_type.contains("PRODUCT") {
-  //       //     product_groups.entry(sku.clone()).or_default().push(record);
-  //       // } else if record_type.contains("MODEL") {
-  //       //     let parent_sku = record.get(10).unwrap_or("").to_string();
-  //       //     product_groups.entry(parent_sku).or_default().push(record);
-  //       // }
-  //   }
-
-  //   println!("Total product groups: {}", product_groups.len());
-  //   println!(
-  //     "Product groups: {:?}",
-  //     product_groups
-  //   );
-  //   println!("Processing products...");
-
-
-  //   let main_product: HashMap<String, HashMap<String, String>> = product_groups
-  //     .into_iter()
-  //     .filter(|(_, records)| {
-  //         records.get("type").unwrap_or(&"".to_string()) == "PRODUCT"
-  //     })
-  //     .collect();
-
-  //   // Process each product group
-  //   for (parent_sku, records) in main_product {
-  //     // // Check Redis for existing SKU
-  //     let exists: bool = redis_conn.hexists::<_, _, bool>("products", &parent_sku).await?;
-
-  //     if !exists {
-  //         println!("Processing product: {}", parent_sku);
-  //         let product = self.woo_product_builder(&records)?;
-  //         let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-  //         println!("Product: {:?}", product);
-  //         println!("JSON Body: {}", json_body);
-          
-  //     }
-
-  //     // if !exists {
-  //     //   // Prepare product data
-  //     //   let product = self.build_product(main_product, &records)?;
-
-  //     //   // Send to WooCommerce
-  //     //   let response = self.upload_product(&product).await?;
-  //     //   println!("Response: {:?}", response);
-
-  //     //   if response.status().is_success() {
-  //     //     // Store in Redis
-  //     //     redis_conn
-  //     //       .hset("products", &parent_sku, serde_json::to_string(&product)?)
-  //     //       .await?;
-
-  //     //     let mut progress = self.progress.lock().await;
-  //     //     progress.successful_rows += 1;
-  //     //     progress.new_entries += 1;
-  //     //   } else {
-  //     //     let mut progress = self.progress.lock().await;
-  //     //     progress.failed_rows += 1;
-  //     //   }
-  //     // }
-
-  //     // let mut progress = self.progress.lock().await;
-  //     // progress.processed_rows += 1;
-  //   }
-
-  //   Ok(())
-  // }
-
-async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMapping) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    //file id is file path without ext
+    let file_id = file_path.split('.').next().unwrap_or("");
+    FileProcessingManager::start_file_process(file_id, 10000).await.unwrap_or(());
     let mut rdr = Reader::from_path(get_upload_path(file_path))?;
+    let total_row_count: u32 = rdr.records().count().try_into().unwrap();
     println!("Processing CSV file: {}", file_path);
+    println!("Rows in CSV: {}", total_row_count);
+    
     
     // Reset progress
     let mut progress = self.progress.lock().await;
@@ -278,152 +250,211 @@ async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMappi
     let reverse_mapping = field_mapping.get_reverse_mapping();
 
     println!("Processing records...");
+    // let new_self = Arc::new(self.clone());
     
+    let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let semaphore = Arc::new(Semaphore::new(5)); // Limit to 5 concurrent tasks
+    let semaphore = Arc::new(Semaphore::new(10)); // Limit to 5 concurrent tasks
     let woo_client = self.woocommerce_client.clone();
     let redis_client = self.redis_client.clone();
     let progress_clone = Arc::clone(&self.progress);
+  
     
     // Create a vector of futures for batch processing
     let mut processing_futures = Vec::new();
+
+
+    // print number of records in the CSV file 
     
+    let mut count = 0;
     let mut iter = rdr.records();
     while let Some(result) = iter.next() {
+      let new_self = Arc::clone(&new_self);
+      println!("Processing record... counting");
         let record = match result {
             Ok(rec) => rec,
             Err(e) => {
                 println!("Error reading record: {:?}", e);
-                let mut progress = self.progress.lock().await;
-                progress.failed_rows += 1;
+                // let mut progress = self.progress.lock().await;
+                // progress.failed_rows += 1;
                 continue;
             }
         };
+
+        println!("Processing record... counting 2");
         
         let sku = record.get(0).unwrap_or("").to_string();
         let record_type = record.get(24).unwrap_or("").to_string();
+        println!("Processing record : {:?}", record);
+        println!("Record type: {}", record_type);
 
         // Only process if it's a PRODUCT (main product)
-        if record_type == "PRODUCT" {
-            let row_map: HashMap<String, String> = headers
-                .iter()
-                .zip(record.iter())
-                .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
-                .collect();
+        // if record_type.to_lowercase() == "PRODUCT".to_lowercase() {
+        let row_map: HashMap<String, String> = headers
+            .iter()
+            .zip(record.iter())
+            .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
+            .collect();
+
+          println!("{:?}", row_map);  // Print each row as a HashMap
             
-            // Clone necessary values for the async task
-            let sku_clone = sku.clone();
-            let redis_client_clone = redis_client.clone();
-            let row_map_clone = row_map.clone();
-            let progress_clone = Arc::clone(&progress_clone);
-            let woo_client_clone = Arc::clone(&woo_client);
-            let semaphore_clone = Arc::clone(&semaphore);
-            
-            // Spawn a new task for each product
-            let task = tokio::spawn(async move {
-                // Acquire a permit from the semaphore - this will block if we already have 5 tasks running
-                let _permit = semaphore_clone.acquire().await.unwrap();
-                
-                // Simple approach - fail fast with no retries
-                let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
-                    Ok(conn) => conn,
-                    Err(e) => {
-                        println!("Redis connection error: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                        return;
+          // Clone necessary values for the async task
+          let redis_client_clone = redis_client.clone();
+          let row_map_clone = row_map.clone();
+          let progress_clone = Arc::clone(&progress_clone);
+          let woo_client_clone = Arc::clone(&woo_client);
+          let semaphore_clone = Arc::clone(&semaphore);
+          
+          // Spawn a new task for each product
+          let task = tokio::spawn(async move {
+              
+              println!("Processing product in new async way: {}", new_self.consumer_key);
+              // Acquire a permit from the semaphore - this will block if we already have 5 tasks running
+              let _permit = semaphore_clone.acquire().await.unwrap();
+              
+              // Simple approach - fail fast with no retries
+              let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
+                  Ok(conn) => conn,
+                  Err(e) => {
+                      println!("Redis connection error: {:?}", e);
+                      let mut progress = progress_clone.lock().await;
+                      progress.failed_rows += 1;
+                      progress.processed_rows += 1;
+                      return;
+                  }
+              };
+              
+              println!("Redis connection established for SKU: {}", sku);
+              // Check Redis for existing SKU
+              
+              // Skip if SKU already exists
+              // if !exists {
+              //     println!("SKU already exists in Redis: {}", sku);
+              //     let mut progress = progress_clone.lock().await;
+              //     // progress.skipped_rows += 1;
+              //     progress.processed_rows += 1;
+              //     return;
+              // }
+              
+              // Create product
+              let mut new_product_update = match Self::woo_product_builder(&row_map_clone) {
+                  Ok(p) => p,
+                  Err(e) => {
+                      println!("Error building product: {:?}", e);
+                      let mut progress = progress_clone.lock().await;
+                      progress.failed_rows += 1;
+                      progress.processed_rows += 1;
+                      return;
+                  }
+              };
+
+              let exists = new_self.get_or_fetch_product(&mut redis_conn, &new_product_update.sku).await;
+
+
+              if let Some(product) = exists {
+                // merge the new  product update with the exisitng 
+                // check if there is any diffrence between the merged and the new product update , if any diff call the update method to update through the api 
+                // if no change skip
+                println!("Product with SKU {} exists, checking for updates", new_product_update.sku);
+    
+                // Check core fields that would require an update
+                if product.name != new_product_update.name || 
+                  product.description != new_product_update.description ||
+                  product.short_description != new_product_update.short_description ||
+                  product.regular_price != new_product_update.regular_price {
+                    let update_prod = product.merge(&new_product_update);
+                    println!("Product update needed: {:?}", update_prod);
+                    let update_prod = new_self.update_product(&update_prod).await;
+                    match update_prod {
+                      Ok(p) => {
+                        println!("Product updated successfully: {:?}", p);
+                        new_product_update = p;
+                        // let mut progress = progress_clone.lock().await;
+                        // progress.successful_rows += 1;
+                        // progress.processed_rows += 1;
+                      },
+                      Err(e) => {
+                        println!("Error updating product: {:?}", e);
+                        // let mut progress = progress_clone.lock().await;
+                        // progress.failed_rows += 1;
+                        // progress.processed_rows += 1;
+                      }
                     }
-                };
-                
-                // Check Redis for existing SKU
-                let exists: bool = match redis_conn.hexists::<_, _, bool>("products", &sku_clone).await {
-                    Ok(exists) => exists,
-                    Err(e) => {
-                        println!("Redis error: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                        return;
-                    }
-                };
-                
-                // Skip if SKU already exists
-                if exists {
-                    let mut progress = progress_clone.lock().await;
-                    // progress.skipped_rows += 1;
-                    progress.processed_rows += 1;
+                   
+                }
+                else {
+                    println!("No update needed for product with SKU: {}", new_product_update.sku);
+                }
+              }
+              else{
+                // if not found create a new product but an ID must exist 
+                println!("Product with SKU {} not found, creating new product", new_product_update.sku);
+                // Ensure required fields are present
+                if new_product_update.name.is_empty() || 
+                  new_product_update.regular_price.is_empty() || 
+                  new_product_update.description.is_empty() || 
+                  new_product_update.short_description.is_empty() {
+                    println!("Missing required fields for product creation");
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.failed_rows += 1;
+                    // progress.processed_rows += 1;
                     return;
                 }
-                
-                // Create product
-                let product = match Self::woo_product_builder(&row_map_clone) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        println!("Error building product: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                        return;
-                    }
-                };
-                
-                let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-                
-                // Upload to WooCommerce
-                let response = woo_client_clone.post(&format!("{}/wp-json/wc/v3/products", "your_base_url"))
-                    .basic_auth("your_consumer_key", Some("your_consumer_secret"))
-                    .body(json_body.clone())
-                    .send()
-                    .await;
-                    
-                match response {
-                    Ok(res) => {
-                        if res.status().is_success() {
-                            // Update Redis cache
-                            if let Err(e) = redis_conn.hset::<_, _, _, ()>("products", &sku_clone, json_body).await {
-                                println!("Failed to update Redis cache: {:?}", e);
-                            }
-                            
-                            let mut progress = progress_clone.lock().await;
-                            progress.successful_rows += 1;
-                            progress.new_entries += 1;
-                            progress.processed_rows += 1;
-                        } else {
-                            // API error
-                            println!("WooCommerce API error: {:?}", res.status());
-                            let mut progress = progress_clone.lock().await;
-                            progress.failed_rows += 1;
-                            progress.processed_rows += 1;
-                        }
-                    },
-                    Err(e) => {
-                        println!("WooCommerce request error: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                    }
+
+                println!("Creating new product: {:?}", new_product_update);
+                let mut create_new_product = new_product_update.clone();
+                create_new_product.id = String::new();
+                let new_product = new_self.create_product(&create_new_product).await;
+                match new_product {
+                  Ok(p) => {
+                    println!("Product created successfully: {:?}", p);
+                    new_product_update = p;
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.successful_rows += 1;
+                    // progress.processed_rows += 1;
+                  },
+                  Err(e) => {
+                    println!("Error creating product: {:?}", e);
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.failed_rows += 1;
+                    // progress.processed_rows += 1;
+                  }
                 }
-                
-                // The permit is automatically dropped when this task finishes
-            });
-            
-            processing_futures.push(task);
-        }
-    }
+              }        
+              // cache the product in redis
+              let json_body = serde_json::to_string(&new_product_update).unwrap_or("{}".to_string());
+              // Upload to Redis
+              let _: () = redis_conn.hset("products", &new_product_update.sku, json_body).await.unwrap_or(());
+              println!("Product with SKU {} cached in Redis", new_product_update.sku);      
+              // The permit is automatically dropped when this task finishes
+          });
+          
+          processing_futures.push(task);
+      // }
+      count += 1;
+  }
     
+    println!("Total records processed: {}", count);
     // Wait for all tasks to complete
+    let mut xyz = 0;
     for task in processing_futures {
         if let Err(e) = task.await {
             println!("Task error: {:?}", e);
+            FileProcessingManager::mark_as_failed(file_id).await.unwrap_or(());
+        }else {
+            println!("Task completed successfully");
+            FileProcessingManager::mark_progress(file_id, xyz, total_row_count).await.unwrap_or(());
         }
+        xyz += 1;
     }
 
     println!("CSV processing completed");
+    FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
     Ok(())
 }
-
-  fn woo_product_builder(
+ 
+ 
+ fn woo_product_builder(
     product: &HashMap<String, String>,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
       
@@ -431,6 +462,7 @@ async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMappi
           product.get(key).unwrap_or(&"".to_string()).trim().to_string()
       };
 
+      let id = get_value("id");
       let sku = get_value("sku");
       let title = get_value("name");
       let description = get_value("description");
@@ -522,6 +554,7 @@ async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMappi
       };
       
       Ok(WooCommerceProduct {
+          id,
           name: title,
           sku,
           regular_price,
@@ -542,23 +575,93 @@ async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMappi
 
 
   
-  async fn upload_product(
+  async fn update_product(
     &self,
     product: &WooCommerceProduct,
-  ) -> Result<reqwest::Response, reqwest::Error> {
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-    self
+    let res = self
+      .woocommerce_client
+      .post(&format!("{}/wp-json/wc/v3/products/{}", self.base_url, product.id))
+      .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+      .body(json_body)
+      .send()
+      .await?;
+    let body = res.text().await?; // Get response as a string
+    println!("Response body from update_product: {}", body);
+    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+
+    Ok(products)
+  }
+
+  async fn create_product(
+    &self,
+    product: &WooCommerceProduct,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    // amke id empty
+    let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
+    println!("Creating product with JSON body: {}", json_body);
+    let res = self
       .woocommerce_client
       .post(&format!("{}/wp-json/wc/v3/products", self.base_url))
       .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
       .body(json_body)
       .send()
-      .await
+      .await?;
+    let body = res.text().await?; // Get response as a string
+    println!("Response body from create_product: {}", body);
+    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+    
+
+    Ok(products)
+  }
+
+  async fn fetch_product_by_sku(
+    &self,
+    sku: &str,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    let res = self
+      .woocommerce_client
+      .get(&format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku))
+      .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+      .send()
+      .await?;
+    let body = res.text().await?; // Get response as a string
+    println!("Response body from fetch_product_by_sku: {}", body);
+    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+
+    Ok(products)
   }
 
   async fn get_progress(&self) -> ProcessingProgress {
     self.progress.lock().await.clone()
   }
+
+  async fn get_or_fetch_product(
+    &self,
+    redis_conn: &mut MultiplexedConnection,
+    sku: &str,
+) -> Option<WooCommerceProduct> {
+    // Try to get the product from Redis
+    if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", sku).await {
+        if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
+            println!("Product found in Redis: {:?}", product);
+            return Some(product); // Found in Redis, return it
+        } else {
+            println!("Failed to deserialize product from Redis.");
+        }
+    }
+    println!("Product not found in Redis, fetching from WooCommerce API...");
+
+    // If not found in Redis, fetch from WooCommerce API
+    match self.fetch_product_by_sku(sku).await {
+        Ok(product) => Some(product), // Found in WooCommerce, return it
+        Err(e) => {
+            println!("WooCommerce error: {:?}", e);
+            None // Product not found or API error
+        }
+    }
+}
 }
 
 
@@ -580,188 +683,3 @@ pub async fn process_woocommerce_csv(
   }
 }
 
-
-/**
- * use tokio::sync::Semaphore;
-use std::sync::Arc;
-
-async fn process_csv(&self, file_path: &str, field_mapping: &WordPressFieldMapping) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut rdr = Reader::from_path(get_upload_path(file_path))?;
-    println!("Processing CSV file: {}", file_path);
-    
-    // Reset progress
-    let mut progress = self.progress.lock().await;
-    *progress = ProcessingProgress::default();
-    progress.total_rows = rdr.records().count();
-    drop(progress);
-
-    // Reset reader
-    let mut rdr = Reader::from_path(get_upload_path(file_path))?;
-    let headers = rdr.headers()?.clone();
-    let reverse_mapping = field_mapping.get_reverse_mapping();
-
-    println!("Processing records...");
-    
-    // Create a semaphore to limit concurrent tasks
-    let semaphore = Arc::new(Semaphore::new(5)); // Limit to 5 concurrent tasks
-    let woo_client = self.woocommerce_client.clone();
-    let redis_client = self.redis_client.clone();
-    let progress_clone = Arc::clone(&self.progress);
-    
-    // Create a vector of futures for batch processing
-    let mut processing_futures = Vec::new();
-    
-    let mut iter = rdr.records();
-    while let Some(result) = iter.next() {
-        let record = match result {
-            Ok(rec) => rec,
-            Err(e) => {
-                println!("Error reading record: {:?}", e);
-                let mut progress = self.progress.lock().await;
-                progress.failed_rows += 1;
-                continue;
-            }
-        };
-        
-        let sku = record.get(0).unwrap_or("").to_string();
-        let record_type = record.get(24).unwrap_or("").to_string();
-
-        // Only process if it's a PRODUCT (main product)
-        if record_type == "PRODUCT" {
-            let row_map: HashMap<String, String> = headers
-                .iter()
-                .zip(record.iter())
-                .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
-                .collect();
-            
-            // Clone necessary values for the async task
-            let sku_clone = sku.clone();
-            let redis_client_clone = redis_client.clone();
-            let row_map_clone = row_map.clone();
-            let progress_clone = Arc::clone(&progress_clone);
-            let woo_client_clone = Arc::clone(&woo_client);
-            let semaphore_clone = Arc::clone(&semaphore);
-            
-            // Spawn a new task for each product
-            let task = tokio::spawn(async move {
-                // Acquire a permit from the semaphore - this will block if we already have 5 tasks running
-                let _permit = semaphore_clone.acquire().await.unwrap();
-                
-                // Add exponential backoff for error handling
-                let mut retry_count = 0;
-                let max_retries = 3;
-                
-                while retry_count < max_retries {
-                    let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            println!("Redis connection error: {:?}", e);
-                            retry_count += 1;
-                            tokio::time::sleep(tokio::time::Duration::from_millis(500 * 2_u64.pow(retry_count))).await;
-                            continue;
-                        }
-                    };
-                    
-                    // Check Redis for existing SKU
-                    let exists: bool = match redis_conn.hexists::<_, _, bool>("products", &sku_clone).await {
-                        Ok(exists) => exists,
-                        Err(e) => {
-                            println!("Redis error: {:?}", e);
-                            retry_count += 1;
-                            tokio::time::sleep(tokio::time::Duration::from_millis(500 * 2_u64.pow(retry_count))).await;
-                            continue;
-                        }
-                    };
-                    
-                    if !exists {
-                        // Create product
-                        let product = match Self::woo_product_builder(&row_map_clone) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                println!("Error building product: {:?}", e);
-                                let mut progress = progress_clone.lock().await;
-                                progress.failed_rows += 1;
-                                break;
-                            }
-                        };
-                        
-                        let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-                        
-                        // Upload to WooCommerce
-                        let response = woo_client_clone.post(&format!("{}/wp-json/wc/v3/products", "your_base_url"))
-                            .basic_auth("your_consumer_key", Some("your_consumer_secret"))
-                            .body(json_body.clone())
-                            .send()
-                            .await;
-                            
-                        match response {
-                            Ok(res) => {
-                                if res.status().is_success() {
-                                    // Update Redis cache
-                                    let _: () = redis_conn.hset("products", &sku_clone, json_body).await.unwrap_or(());
-                                    
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.successful_rows += 1;
-                                    progress.new_entries += 1;
-                                    progress.processed_rows += 1;
-                                    
-                                    break; // Success, exit the retry loop
-                                } else if res.status().as_u16() == 429 {
-                                    // Rate limit hit - wait longer
-                                    println!("Rate limit hit, backing off...");
-                                    retry_count += 1;
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(5 * 2_u64.pow(retry_count))).await;
-                                    continue;
-                                } else {
-                                    // Other error
-                                    println!("WooCommerce API error: {:?}", res.status());
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.failed_rows += 1;
-                                    progress.processed_rows += 1;
-                                    break;
-                                }
-                            },
-                            Err(e) => {
-                                println!("WooCommerce request error: {:?}", e);
-                                retry_count += 1;
-                                if retry_count < max_retries {
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(500 * 2_u64.pow(retry_count))).await;
-                                    continue;
-                                } else {
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.failed_rows += 1;
-                                    progress.processed_rows += 1;
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // SKU already exists
-                        let mut progress = progress_clone.lock().await;
-                        progress.skipped_rows += 1;
-                        progress.processed_rows += 1;
-                        break;
-                    }
-                }
-                
-                // The permit is automatically dropped when this task finishes
-            });
-            
-            processing_futures.push(task);
-        }
-    }
-    
-    // Wait for all tasks to complete
-    for task in processing_futures {
-        if let Err(e) = task.await {
-            println!("Task error: {:?}", e);
-        }
-    }
-
-    println!("CSV processing completed");
-    Ok(())
-}
- */
-fn something() {
-    
-}
