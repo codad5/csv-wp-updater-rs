@@ -631,6 +631,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
           .woocommerce_client
           .get(&format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku))
           .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+          .header("Content-Type", "application/json")
           .send()
           .await?;
 
