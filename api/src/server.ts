@@ -103,22 +103,34 @@ app.get('/columns/:id', async (req: Request, res: Response) => {
         }
         
         const filePath = getUploadFilePath(fileName);
-        const headers: string[] = [];
-        
-        fs.createReadStream(filePath)
-            .pipe(csv())
-            .on('headers', (headerList) => {
-                headers.push(...headerList);
-                ResponseHelper.success({ headers });
-            })
-            .on('error', (error) => {
-                ResponseHelper.error('Failed to read CSV headers', { message: error.message });
-            })
-            .on('end', () => {
-                if (headers.length === 0) {
-                    ResponseHelper.error('No headers found in CSV', { message: 'CSV file has no headers' });
-                }
+        const readHeaders = (): Promise<string[]> => {
+            return new Promise((resolve, reject) => {
+                const headers: string[] = [];
+                
+                fs.createReadStream(filePath)
+                    .pipe(csv())
+                    .on('headers', (headerList) => {
+                        headers.push(...headerList);
+                        resolve(headers);
+                    })
+                    .on('error', (error) => {
+                        reject(error);
+                    })
+                    .on('end', () => {
+                        if (headers.length === 0) {
+                            reject(new Error('No headers found in CSV'));
+                        } else {
+                            resolve(headers);
+                        }
+                    });
             });
+        };
+
+        let headers = await readHeaders();
+        if (headers.length === 0) {
+            throw new Error('No headers found in CSV');
+        }
+        ResponseHelper.success({ headers });
             
     } catch (error) {
         ResponseHelper.error(
