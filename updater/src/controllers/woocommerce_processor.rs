@@ -21,53 +21,60 @@ use tokio::sync::Semaphore;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct WooCommerceProduct {
-  // Core product details
-  #[serde(
-      skip_serializing_if = "String::is_empty",
-      serialize_with = "serialize_id_as_number",
-      deserialize_with = "deserialize_id_as_string"
-  )]
-  id: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  name: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  sku: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  regular_price: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  sale_price: Option<String>,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  description: String,
-  #[serde(skip_serializing_if = "String::is_empty")]
-  short_description: String,
+    // Core product details
+    #[serde(
+        skip_serializing_if = "String::is_empty",
+        serialize_with = "serialize_id_as_number",
+        deserialize_with = "deserialize_id_as_string", 
+        default
+    )]
+    id: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    name: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    sku: String,
+    #[serde(rename = "type", skip_serializing_if = "String::is_empty", default)]
+    type_: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    parent: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    regular_price: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    sale_price: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    description: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    short_description: String,
 
-  // Categorization
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  categories: Vec<Category>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  tags: Vec<String>,
+    // Categorization
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    categories: Vec<Category>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    tags: Vec<String>,
 
-  // Images
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  images: Vec<ProductImage>,
+    // Images
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    images: Vec<ProductImage>,
 
-  // Variations support
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  variations: Vec<ProductVariation>,
+    // Variations support
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    variations: Vec<ProductVariation>,
 
-  // Additional attributes
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  attributes: Vec<ProductAttribute>,
+    // Additional attributes
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    attributes: Vec<ProductAttribute>,
 
-  // Stock and shipping
-  #[serde(skip_serializing_if = "Option::is_none")]
-  manage_stock: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  stock_quantity: Option<i32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  shipping_class: Option<String>,
+    // Stock and shipping
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    manage_stock: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    stock_quantity: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    shipping_class: Option<String>,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct Category {
   id: Option<i32>,
   #[serde(skip_serializing_if = "String::is_empty")]
@@ -76,7 +83,7 @@ struct Category {
   slug: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct ProductImage {
   #[serde(skip_serializing_if = "String::is_empty")]
   src: String,
@@ -86,7 +93,7 @@ struct ProductImage {
   alt: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct ProductVariation {
   #[serde(skip_serializing_if = "String::is_empty")]
   sku: String,
@@ -98,7 +105,7 @@ struct ProductVariation {
   stock_quantity: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct ProductAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
@@ -112,7 +119,7 @@ struct ProductAttribute {
   options: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct VariationAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
   name: String,
@@ -159,11 +166,12 @@ impl WooCommerceProduct {
             name: merge_string(&self.name, &other.name),
             id: merge_string(&self.id, &other.id),
             sku: merge_string(&self.sku, &other.sku),
+            type_: merge_string(&self.sku, &other.sku),
             regular_price: merge_string(&self.regular_price, &other.regular_price),
             sale_price: merge_option(&self.sale_price, &other.sale_price),
             description: merge_string(&self.description, &other.description),
             short_description: merge_string(&self.short_description, &other.short_description),
-            
+            parent: merge_string(&self.parent, &other.parent),
             // Categorization
             categories: merge_vec(&self.categories, &other.categories),
             tags: merge_vec(&self.tags, &other.tags),
@@ -182,6 +190,44 @@ impl WooCommerceProduct {
             stock_quantity: merge_option(&self.stock_quantity, &other.stock_quantity),
             shipping_class: merge_option(&self.shipping_class, &other.shipping_class),
         }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("Product name is required".to_string());
+        }
+        if self.sku.is_empty() {
+            return Err("Product SKU is required".to_string());
+        }
+        if self.regular_price.is_empty() {
+            return Err("Product regular price is required".to_string());
+        }
+        if self.description.is_empty() {
+            return Err("Product description is required".to_string());
+        }
+        Ok(())
+    }
+
+    // to check if the product has changed or not
+    pub fn has_changed(&self, other: &WooCommerceProduct) -> bool {
+        self.name != other.name ||
+        self.sku != other.sku ||
+        self.regular_price != other.regular_price ||
+        self.description != other.description ||
+        self.short_description != other.short_description ||
+        self.categories != other.categories ||
+        self.tags != other.tags ||
+        self.images != other.images ||
+        self.variations != other.variations ||
+        self.attributes != other.attributes ||
+        self.manage_stock != other.manage_stock ||
+        self.stock_quantity != other.stock_quantity ||
+        self.shipping_class != other.shipping_class
+    }
+
+    // a method to check if main product or a variation 
+    pub fn is_main_product(&self) -> bool {
+        self.parent.is_empty()
     }
 }
 
@@ -353,79 +399,29 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                   }
               };
 
-              let exists = new_self.get_or_fetch_product(&mut redis_conn, &new_product_update.sku).await;
-
-
-              if let Some(product) = exists {
-                // merge the new  product update with the exisitng 
-                // check if there is any diffrence between the merged and the new product update , if any diff call the update method to update through the api 
-                // if no change skip
-                println!("Product with SKU {} exists, checking for updates", new_product_update.sku);
-    
-                // Check core fields that would require an update
-                if product.name != new_product_update.name || 
-                  product.description != new_product_update.description ||
-                  product.short_description != new_product_update.short_description ||
-                  product.regular_price != new_product_update.regular_price {
-                    let update_prod = product.merge(&new_product_update);
-                    println!("Product update needed: {:?}", update_prod);
-                    let update_prod = new_self.update_product(&update_prod).await;
-                    match update_prod {
-                      Ok(p) => {
-                        println!("Product updated successfully: {:?}", p);
-                        new_product_update = p;
-                        // let mut progress = progress_clone.lock().await;
-                        // progress.successful_rows += 1;
-                        // progress.processed_rows += 1;
-                      },
-                      Err(e) => {
-                        println!("Error updating product: {:?}", e);
-                        // let mut progress = progress_clone.lock().await;
-                        // progress.failed_rows += 1;
-                        // progress.processed_rows += 1;
-                      }
+              if new_product_update.is_main_product() {
+                    println!("Handling main product for SKU: {}", new_product_update.sku);
+                    // Handle main product
+                    match new_self.handle_main_product(&new_product_update, &mut redis_conn).await {
+                        Ok(p) => {
+                            println!("Main product handled successfully: {:?}", p);
+                            new_product_update = p;
+                        },
+                        Err(e) => {
+                            println!("Error handling main product: {:?}", e);
+                            let mut progress = progress_clone.lock().await;
+                            progress.failed_rows += 1;
+                            progress.processed_rows += 1;
+                            return;
+                        }
                     }
-                   
-                }
-                else {
-                    println!("No update needed for product with SKU: {}", new_product_update.sku);
-                }
-              }
-              else{
-                // if not found create a new product but an ID must exist 
-                println!("Product with SKU {} not found, creating new product", new_product_update.sku);
-                // Ensure required fields are present
-                if new_product_update.name.is_empty() || 
-                  new_product_update.regular_price.is_empty() || 
-                  new_product_update.description.is_empty() || 
-                  new_product_update.short_description.is_empty() {
-                    println!("Missing required fields for product creation");
-                    // let mut progress = progress_clone.lock().await;
-                    // progress.failed_rows += 1;
-                    // progress.processed_rows += 1;
-                    return;
-                }
+            } else {
+                println!("Handling variation for SKU: {}", new_product_update.sku);
+            }
 
-                println!("Creating new product: {:?}", new_product_update);
-                let mut create_new_product = new_product_update.clone();
-                create_new_product.id = String::new();
-                let new_product = new_self.create_product(&create_new_product).await;
-                match new_product {
-                  Ok(p) => {
-                    println!("Product created successfully: {:?}", p);
-                    new_product_update = p;
-                    // let mut progress = progress_clone.lock().await;
-                    // progress.successful_rows += 1;
-                    // progress.processed_rows += 1;
-                  },
-                  Err(e) => {
-                    println!("Error creating product: {:?}", e);
-                    // let mut progress = progress_clone.lock().await;
-                    // progress.failed_rows += 1;
-                    // progress.processed_rows += 1;
-                  }
-                }
-              }        
+              
+
+
               // cache the product in redis
               let json_body = serde_json::to_string(&new_product_update).unwrap_or("{}".to_string());
               // Upload to Redis
@@ -457,8 +453,74 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
     Ok(())
 }
- 
- 
+
+async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
+    // if its parent id is empty then its a main product
+    if !product.parent.is_empty() {
+        return Err("Product is not a main product".into());
+    }
+    
+    let exists = self.get_or_fetch_product(redis_conn, &product.sku).await;
+    let mut new_product_update = product.clone();
+    
+    if let Some(product) = exists {
+        // merge the new product update with the existing
+        // check if there is any difference between the merged and the new product update, if any diff call the update method to update through the api
+        // if no change skip
+        
+        // Check core fields that would require an update
+        if product.name != new_product_update.name || 
+            product.description != new_product_update.description ||
+            product.short_description != new_product_update.short_description ||
+            product.regular_price != new_product_update.regular_price {
+            
+            let update_prod = product.merge(&new_product_update);
+            let update_prod = self.update_product(&update_prod).await;
+            match update_prod {
+                Ok(p) => {
+                    new_product_update = p;
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.successful_rows += 1;
+                    // progress.processed_rows += 1;
+                },
+                Err(e) => {
+                    return Err(format!("Error updating product: {:?}", e).into());
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.failed_rows += 1;
+                    // progress.processed_rows += 1;
+                }
+            }
+        }
+    } else {
+        // if not found create a new product but an ID must exist
+        
+        // Ensure required fields are present
+        if let Err(e) = new_product_update.validate() {
+            let error_msg = format!("Missing required fields for product creation: {:?} in {:?}", e, new_product_update);
+            return Err(error_msg.into());
+        }
+        
+        let mut create_new_product = new_product_update.clone();
+        create_new_product.id = String::new();
+        let new_product = self.create_product(&create_new_product).await;
+        match new_product {
+            Ok(p) => {
+                new_product_update = p;
+                // let mut progress = progress_clone.lock().await;
+                // progress.successful_rows += 1;
+                // progress.processed_rows += 1;
+            },
+            Err(e) => {
+                return Err(format!("Error creating product: {:?}", e).into());
+                // let mut progress = progress_clone.lock().await;
+                // progress.failed_rows += 1;
+                // progress.processed_rows += 1;
+            }
+        }
+    }
+    
+    Ok(new_product_update)
+}
  fn woo_product_builder(
     product: &HashMap<String, String>,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
@@ -469,11 +531,13 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
 
       let id = get_value("id");
       let sku = get_value("sku");
+      let type_ = get_value("type");
       let title = get_value("name");
       let description = get_value("description");
       let short_description = get_value("short_description");
       let regular_price = get_value("regular_price");
       let sale_price = get_value("sale_price");
+      let parent = get_value("parent_id");
       
       // Handle categories
       let categories: Vec<Category> = get_value("category_ids")
@@ -562,6 +626,8 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
           id,
           name: title,
           sku,
+          type_,
+          parent,
           regular_price,
           sale_price: sale_price_option,
           description,
@@ -646,7 +712,11 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
       }
 
       // Return the first product
-      Ok(products.into_iter().next().unwrap())
+      let found_product = products.into_iter().next().unwrap();
+      if found_product.sku != sku {
+        return Err(format!("Product SKU mismatch: expected {}, found {}", sku, found_product.sku).into());
+      }
+      Ok(found_product)
   }
 
 
@@ -665,10 +735,10 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
             println!("Product found in Redis: {:?}", product);
             return Some(product); // Found in Redis, return it
         } else {
-            println!("Failed to deserialize product from Redis.");
+            println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
-    println!("Product not found in Redis, fetching from WooCommerce API...");
+    println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
 
     // If not found in Redis, fetch from WooCommerce API
     match self.fetch_product_by_sku(sku).await {
