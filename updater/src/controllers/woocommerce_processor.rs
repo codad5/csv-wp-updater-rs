@@ -288,20 +288,30 @@ impl WooCommerceProcessor {
     }
   }
 
-async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    //file id is file path without ext
+async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping, start_row: u32, no_of_rows: u32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // File id is file path without ext
     let file_id = file_path.split('.').next().unwrap_or("");
     FileProcessingManager::start_file_process(file_id, 10000).await.unwrap_or(());
+    
+    // First pass to count total rows
     let mut rdr = Reader::from_path(get_upload_path(file_path))?;
     let total_row_count: u32 = rdr.records().count().try_into().unwrap();
     println!("Processing CSV file: {}", file_path);
-    println!("Rows in CSV: {}", total_row_count);
-    
+    println!("Total rows in CSV: {}", total_row_count);
+    println!("Processing from row {} for {} rows", start_row, no_of_rows);
     
     // Reset progress
     let mut progress = self.progress.lock().await;
     *progress = ProcessingProgress::default();
-    progress.total_rows = rdr.records().count();
+    
+    // Set total rows to process based on parameters
+    let rows_to_process = if no_of_rows == 0 {
+        total_row_count - start_row
+    } else {
+        no_of_rows.min(total_row_count - start_row)
+    };
+    
+    progress.total_rows = rows_to_process as usize;
     drop(progress);
 
     // Reset reader
@@ -310,155 +320,168 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     let reverse_mapping = field_mapping.get_reverse_mapping();
 
     println!("Processing records...");
-    // let new_self = Arc::new(self.clone());
     
     let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let semaphore = Arc::new(Semaphore::new(40)); // Limit to 5 concurrent tasks
+    let semaphore = Arc::new(Semaphore::new(40)); // Limit to 40 concurrent tasks
     let woo_client = self.woocommerce_client.clone();
     let redis_client = self.redis_client.clone();
     let progress_clone = Arc::clone(&self.progress);
   
-    
     // Create a vector of futures for batch processing
     let mut processing_futures = Vec::new();
-
-
-    // print number of records in the CSV file 
     
     let mut count = 0;
+    let mut processed_count = 0;
     let mut skus: Vec<String> = vec![];
+    
+    // Skip records before start_row
     let mut iter = rdr.records();
+    for _ in 0..start_row {
+        if iter.next().is_none() {
+            // We've reached the end of file before start_row
+            break;
+        }
+        count += 1;
+    }
+    
+    // Process only up to the specified number of rows
     while let Some(result) = iter.next() {
-      let new_self = Arc::clone(&new_self);
-      println!("Processing record... counting");
+        if no_of_rows > 0 && processed_count >= no_of_rows {
+            break;
+        }
+        
+        let new_self = Arc::clone(&new_self);
+        println!("Processing record {}", count + 1);
+        
         let record = match result {
             Ok(rec) => rec,
             Err(e) => {
                 println!("Error reading record: {:?}", e);
-                // let mut progress = self.progress.lock().await;
-                // progress.failed_rows += 1;
+                count += 1;
+                processed_count += 1;
                 continue;
             }
         };
-
-        println!("Processing record... counting 2");
         
         let sku = record.get(0).unwrap_or("").to_string();
-        // if sku already in skus skip it
+        // Check for duplicate SKU
         if skus.contains(&sku) {
             println!("SKU {} already processed, skipping...", sku);
+            count += 1;
             continue;
         } else {
             skus.push(sku.clone());
         }
+        
         let record_type = record.get(24).unwrap_or("").to_string();
-        println!("Processing record : {:?}", record);
-        println!("Record type: {}", record_type);
+        println!("Processing record : SKU={}, Type={}", sku, record_type);
 
-        // Only process if it's a PRODUCT (main product)
-        // if record_type.to_lowercase() == "PRODUCT".to_lowercase() {
+        // Map row fields
         let row_map: HashMap<String, String> = headers
             .iter()
             .zip(record.iter())
             .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
             .collect();
 
-          println!("{:?}", row_map);  // Print each row as a HashMap
+        // Clone necessary values for the async task
+        let redis_client_clone = redis_client.clone();
+        let row_map_clone = row_map.clone();
+        let progress_clone = Arc::clone(&progress_clone);
+        let semaphore_clone = Arc::clone(&semaphore);
+        let sku_clone = sku.clone();
+        
+        // Spawn a new task for each product
+        let task = tokio::spawn(async move {
+            println!("Processing product in new async way: {}", new_self.consumer_key);
+            // Acquire a permit from the semaphore
+            let _permit = semaphore_clone.acquire().await.unwrap();
             
-          // Clone necessary values for the async task
-          let redis_client_clone = redis_client.clone();
-          let row_map_clone = row_map.clone();
-          let progress_clone = Arc::clone(&progress_clone);
-          let woo_client_clone = Arc::clone(&woo_client);
-          let semaphore_clone = Arc::clone(&semaphore);
-          
-          // Spawn a new task for each product
-          let task = tokio::spawn(async move {
-              
-              println!("Processing product in new async way: {}", new_self.consumer_key);
-              // Acquire a permit from the semaphore - this will block if we already have 5 tasks running
-              let _permit = semaphore_clone.acquire().await.unwrap();
-              
-              // Simple approach - fail fast with no retries
-              let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
-                  Ok(conn) => conn,
-                  Err(e) => {
-                      println!("Redis connection error: {:?}", e);
-                      let mut progress = progress_clone.lock().await;
-                      progress.failed_rows += 1;
-                      progress.processed_rows += 1;
-                      return;
-                  }
-              };
-              
-              println!("Redis connection established for SKU: {}", sku);
-              
-              // Create product
-              let mut new_product_update = match Self::woo_product_builder(&row_map_clone) {
-                  Ok(p) => p,
-                  Err(e) => {
-                      println!("Error building product: {:?}", e);
-                      let mut progress = progress_clone.lock().await;
-                      progress.failed_rows += 1;
-                      progress.processed_rows += 1;
-                      return;
-                  }
-              };
+            // Establish Redis connection
+            let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    println!("Redis connection error: {:?}", e);
+                    let mut progress = progress_clone.lock().await;
+                    progress.failed_rows += 1;
+                    progress.processed_rows += 1;
+                    return;
+                }
+            };
+            
+            println!("Redis connection established for SKU: {}", sku_clone);
+            
+            // Create product
+            let mut new_product_update = match Self::woo_product_builder(&row_map_clone) {
+                Ok(p) => p,
+                Err(e) => {
+                    println!("Error building product: {:?}", e);
+                    let mut progress = progress_clone.lock().await;
+                    progress.failed_rows += 1;
+                    progress.processed_rows += 1;
+                    return;
+                }
+            };
 
-              if new_product_update.is_main_product() {
-                    println!("Handling main product for SKU: {}", new_product_update.sku);
-                    // Handle main product
-                    match new_self.handle_main_product(&new_product_update, &mut redis_conn).await {
-                        Ok(p) => {
-                            println!("Main product handled successfully: {:?}", p);
-                            new_product_update = p;
-                        },
-                        Err(e) => {
-                            println!("Error handling main product: {:?}", e);
-                            let mut progress = progress_clone.lock().await;
-                            progress.failed_rows += 1;
-                            progress.processed_rows += 1;
-                            return;
-                        }
+            if new_product_update.is_main_product() {
+                println!("Handling main product for SKU: {}", new_product_update.sku);
+                // Handle main product
+                match new_self.handle_main_product(&new_product_update, &mut redis_conn).await {
+                    Ok(p) => {
+                        println!("Main product handled successfully: {:?}", p);
+                        new_product_update = p;
+                    },
+                    Err(e) => {
+                        println!("Error handling main product: {:?}", e);
+                        let mut progress = progress_clone.lock().await;
+                        progress.failed_rows += 1;
+                        progress.processed_rows += 1;
+                        return;
                     }
+                }
             } else {
                 println!("Handling variation for SKU: {}", new_product_update.sku);
                 return; //TODO: remove this return
             }
 
-              
-
-
-              // cache the product in redis
-              let json_body = serde_json::to_string(&new_product_update).unwrap_or("{}".to_string());
-              // Upload to Redis
-              let _: () = redis_conn.hset("products", &new_product_update.sku, json_body).await.unwrap_or(());
-              println!("Product with SKU {} cached in Redis", new_product_update.sku);      
-              // The permit is automatically dropped when this task finishes
-          });
-          
-          processing_futures.push(task);
-      // }
-      count += 1;
-  }
+            // Cache the product in redis
+            let json_body = serde_json::to_string(&new_product_update).unwrap_or("{}".to_string());
+            let _: () = redis_conn.hset("products", &new_product_update.sku, json_body).await.unwrap_or(());
+            println!("Product with SKU {} cached in Redis", new_product_update.sku);
+            
+            // Update progress
+            let mut progress = progress_clone.lock().await;
+            progress.processed_rows += 1;
+            progress.successful_rows += 1;
+        });
+        
+        processing_futures.push(task);
+        count += 1;
+        processed_count += 1;
+    }
     
-    println!("Total records processed: {}", count);
-    // Wait for all tasks to complete
-    let mut xyz = 0;
+    println!("Total records selected for processing: {}", processed_count);
+    
+    // Wait for all tasks to complete and update progress
+    let mut completed_count = 0;
     for task in processing_futures {
         if let Err(e) = task.await {
             println!("Task error: {:?}", e);
             FileProcessingManager::mark_as_failed(file_id).await.unwrap_or(());
-        }else {
-            println!("Task completed successfully");
-            FileProcessingManager::mark_progress(file_id, xyz, total_row_count).await.unwrap_or(());
+        } else {
+            completed_count += 1;
+            FileProcessingManager::mark_progress(file_id, completed_count, rows_to_process)
+                .await.unwrap_or(());
         }
-        xyz += 1;
     }
 
-    println!("CSV processing completed");
-    FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
+    println!("CSV processing completed for the specified rows");
+    
+    // Mark as done only if we processed all requested rows successfully
+    if completed_count == processed_count {
+        FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
+    }
+    
     Ok(())
 }
 
@@ -853,7 +876,7 @@ pub async fn process_woocommerce_csv(
   let processor = WooCommerceProcessor::new(base_url, consumer_key, consumer_secret).await;
   println!("Processor created");
   println!("Processing CSV file...");
-  match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping).await {
+  match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, file_queue.start_row, file_queue.row_count).await {
     Ok(_) => Ok(()),
     Err(e) => Err(format!("Error processing CSV: {}", e)),
   }
