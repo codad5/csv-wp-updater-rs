@@ -161,12 +161,19 @@ impl WooCommerceProduct {
             }
         }
 
+        let mut type_ = merge_string(&self.type_, &other.type_);
+        // check if type is in array of simple, grouped, external and variable
+        if !["simple", "grouped", "external", "variable"].contains(&type_.as_str()) {
+            type_  =  String::new(); // set to empty string if not valid
+             // Return self if type is not valid
+        } 
+
         WooCommerceProduct {
             // Core product details
             name: merge_string(&self.name, &other.name),
             id: merge_string(&self.id, &other.id),
             sku: merge_string(&self.sku, &other.sku),
-            type_: merge_string(&self.sku, &other.sku),
+            type_,
             regular_price: merge_string(&self.regular_price, &other.regular_price),
             sale_price: merge_option(&self.sale_price, &other.sale_price),
             description: merge_string(&self.description, &other.description),
@@ -476,7 +483,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
             product.sale_price != new_product_update.sale_price ||
             product.regular_price != new_product_update.regular_price {
             
-            let update_prod = product.merge(&new_product_update);
+            let mut update_prod = product.merge(&new_product_update);
             let update_prod = self.update_product(&update_prod).await;
             match update_prod {
                 Ok(p) => {
