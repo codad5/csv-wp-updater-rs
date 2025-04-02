@@ -417,6 +417,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     }
             } else {
                 println!("Handling variation for SKU: {}", new_product_update.sku);
+                return; //TODO: remove this return
             }
 
               
@@ -521,6 +522,76 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
     
     Ok(new_product_update)
 }
+
+
+async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
+    // if its parent id is empty then its a main product
+    if product.parent.is_empty() {
+        return Err("Product is a main product".into());
+    }
+    
+    let exists = self.get_or_fetch_product(redis_conn, &product.sku).await;
+    let mut new_product_update = product.clone();
+    
+    if let Some(product) = exists {
+        // merge the new product update with the existing
+        // check if there is any difference between the merged and the new product update, if any diff call the update method to update through the api
+        // if no change skip
+        
+        // Check core fields that would require an update
+        if product.name != new_product_update.name || 
+            product.description != new_product_update.description ||
+            product.short_description != new_product_update.short_description ||
+            product.regular_price != new_product_update.regular_price {
+            
+            let update_prod = product.merge(&new_product_update);
+            let update_prod = self.update_product(&update_prod).await;
+            match update_prod {
+                Ok(p) => {
+                    new_product_update = p;
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.successful_rows += 1;
+                    // progress.processed_rows += 1;
+                },
+                Err(e) => {
+                    return Err(format!("Error updating product: {:?}", e).into());
+                    // let mut progress = progress_clone.lock().await;
+                    // progress.failed_rows += 1;
+                    // progress.processed_rows += 1;
+                }
+            }
+        }
+    } else {
+        // if not found create a new product but an ID must exist
+        
+        // Ensure required fields are present
+        if let Err(e) = new_product_update.validate() {
+            let error_msg = format!("Missing required fields for product creation: {:?} in {:?}", e, new_product_update);
+            return Err(error_msg.into());
+        }
+        
+        let mut create_new_product = new_product_update.clone();
+        create_new_product.id = String::new();
+        let new_product = self.create_product(&create_new_product).await;
+        match new_product {
+            Ok(p) => {
+                new_product_update = p;
+                // let mut progress = progress_clone.lock().await;
+                // progress.successful_rows += 1;
+                // progress.processed_rows += 1;
+            },
+            Err(e) => {
+                return Err(format!("Error creating product: {:?}", e).into());
+                // let mut progress = progress_clone.lock().await;
+                // progress.failed_rows += 1;
+                // progress.processed_rows += 1;
+            }
+        }
+    }
+    
+    Ok(new_product_update)
+}
+
  fn woo_product_builder(
     product: &HashMap<String, String>,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
