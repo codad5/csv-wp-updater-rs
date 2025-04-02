@@ -724,6 +724,7 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
     product: &WooCommerceProduct,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
+    println!("Updating product with sku: {} and JSON body: {}", product.sku, json_body);
     let res = self
       .woocommerce_client
       .post(&format!("{}/wp-json/wc/v3/products/{}", self.base_url, product.id))
