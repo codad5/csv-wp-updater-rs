@@ -470,6 +470,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
     
     let exists = self.get_or_fetch_product(redis_conn, &product.sku).await;
     let mut new_product_update = product.clone();
+    println!("new product update: {:?}", new_product_update);
     
     if let Some(product) = exists {
         // merge the new product update with the existing
@@ -483,7 +484,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
             product.sale_price != new_product_update.sale_price ||
             product.regular_price != new_product_update.regular_price {
             
-            let mut update_prod = product.merge(&new_product_update);
+            let update_prod = product.merge(&new_product_update);
             let update_prod = self.update_product(&update_prod).await;
             match update_prod {
                 Ok(p) => {
