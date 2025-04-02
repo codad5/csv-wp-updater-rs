@@ -11,6 +11,7 @@ use serde::{Serializer, Deserializer};
 use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::helper::clean_string;
 use crate::helper::file_helper::get_upload_path;
 use crate::libs::redis::{get_progress, FileProcessingManager};
 use crate::types::csv_field_woo_mapper::WordPressFieldMapping;
@@ -25,7 +26,7 @@ struct WooCommerceProduct {
     #[serde(
         skip_serializing_if = "String::is_empty",
         serialize_with = "serialize_id_as_number",
-        deserialize_with = "deserialize_id_as_string", 
+        deserialize_with = "deserialize_id_as_string",
         default
     )]
     id: String,
@@ -39,40 +40,51 @@ struct WooCommerceProduct {
     parent: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     regular_price: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        default,
+        deserialize_with = "deserialize_optional_string"
+    )]
     sale_price: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     description: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     short_description: String,
-
+    
     // Categorization
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     categories: Vec<Category>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     tags: Vec<String>,
-
+    
     // Images
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     images: Vec<ProductImage>,
-
+    
     // Variations support
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     variations: Vec<ProductVariation>,
-
+    
     // Additional attributes
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     attributes: Vec<ProductAttribute>,
-
+    
     // Stock and shipping
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        default,
+        deserialize_with = "deserialize_optional_bool_none_if_false"
+    )]
     manage_stock: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     stock_quantity: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        default,
+        deserialize_with = "deserialize_optional_string"
+    )]
     shipping_class: Option<String>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 struct Category {
@@ -216,20 +228,76 @@ impl WooCommerceProduct {
     }
 
     // to check if the product has changed or not
+    pub fn get_changes(&self, other: &WooCommerceProduct) -> Vec<String> {
+        let mut changes = Vec::new();
+        
+        if self.name != other.name {
+            changes.push("name".to_string());
+        }
+        
+        if self.sku != other.sku {
+            changes.push("sku".to_string());
+        }
+        
+        if self.description != other.description {
+            changes.push("description".to_string());
+        }
+        
+        if self.short_description != other.short_description {
+            changes.push("short_description".to_string());
+        }
+        
+        if self.categories != other.categories && !other.categories.is_empty() {
+            changes.push("categories".to_string());
+        }
+        
+        if self.tags != other.tags && !other.tags.is_empty() {
+            changes.push("tags".to_string());
+        }
+        
+        // if self.images != other.images && !other.images.is_empty() {
+        //     changes.push("images".to_string());
+        // }
+        
+        if self.variations != other.variations && !other.variations.is_empty() {
+            changes.push("variations".to_string());
+        }
+        
+        if self.attributes != other.attributes && !other.attributes.is_empty() {
+            changes.push("attributes".to_string());
+        }
+        
+        if self.manage_stock != other.manage_stock {
+            changes.push("manage_stock".to_string());
+        }
+        
+        if self.stock_quantity != other.stock_quantity {
+            changes.push("stock_quantity".to_string());
+        }
+        
+        if self.shipping_class != other.shipping_class {
+            changes.push("shipping_class".to_string());
+        }
+        
+        // Only check prices if other.type_ is empty or "simple"
+        if other.type_.is_empty() || other.type_ == "simple" {
+            if self.regular_price != other.regular_price {
+                changes.push("regular_price".to_string());
+            }
+            
+            if self.sale_price != other.sale_price {
+                changes.push("sale_price".to_string());
+            }
+        }
+        
+        println!("Product with SKU {} has {} changes: {:?}", 
+                self.sku, changes.len(), changes);
+        
+        changes
+    }
+
     pub fn has_changed(&self, other: &WooCommerceProduct) -> bool {
-        self.name != other.name ||
-        self.sku != other.sku ||
-        self.regular_price != other.regular_price ||
-        self.description != other.description ||
-        self.short_description != other.short_description ||
-        self.categories != other.categories ||
-        self.tags != other.tags ||
-        self.images != other.images ||
-        self.variations != other.variations ||
-        self.attributes != other.attributes ||
-        self.manage_stock != other.manage_stock ||
-        self.stock_quantity != other.stock_quantity ||
-        self.shipping_class != other.shipping_class
+        !self.get_changes(other).is_empty()
     }
 
     // a method to check if main product or a variation 
@@ -318,6 +386,12 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     let mut rdr = Reader::from_path(get_upload_path(file_path))?;
     let headers = rdr.headers()?.clone();
     let reverse_mapping = field_mapping.get_reverse_mapping();
+    let reverse_mapping: HashMap<String, String> = reverse_mapping.iter()
+        .map(|(k, v)| {
+            let clean_key = clean_string(k);
+            (clean_key, v.clone())
+        })
+        .collect();
 
     println!("Processing records...");
     
@@ -380,8 +454,10 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         let row_map: HashMap<String, String> = headers
             .iter()
             .zip(record.iter())
-            .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_string(), v.to_string()))
+            .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
             .collect();
+
+        println!("Row map: {:?}", row_map);
 
         // Clone necessary values for the async task
         let redis_client_clone = redis_client.clone();
@@ -421,6 +497,8 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     return;
                 }
             };
+
+            println!("Product created from CSV on row {}: {:?}", count, new_product_update);
 
             if new_product_update.is_main_product() {
                 println!("Handling main product for SKU: {}", new_product_update.sku);
@@ -494,19 +572,17 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
     let mut new_product_update = product.clone();
     println!("new product update: {:?}", new_product_update);
     
-    if let Some(product) = exists {
+    if let Some(found_product) = exists {
         // merge the new product update with the existing
         // check if there is any difference between the merged and the new product update, if any diff call the update method to update through the api
         // if no change skip
         
         // Check core fields that would require an update
-        if product.name != new_product_update.name || 
-            product.description != new_product_update.description ||
-            product.short_description != new_product_update.short_description ||
-            product.sale_price != new_product_update.sale_price ||
-            product.regular_price != new_product_update.regular_price {
+        if found_product.has_changed(&new_product_update) {
             
-            let update_prod = product.merge(&new_product_update);
+            let update_prod = found_product.merge(&new_product_update);
+            // print before and after the merge
+            println!("Product before merge: {:?} \nProduct after merge: {:?}", found_product, update_prod);
             let update_prod = self.update_product(&update_prod).await;
             match update_prod {
                 Ok(p) => {
@@ -523,6 +599,9 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
                     // progress.processed_rows += 1;
                 }
             }
+        }
+        else {
+            println!("No changes detected for product: {:?}", new_product_update.sku);
         }
     } else {
         // if not found create a new product but an ID must exist
@@ -635,7 +714,7 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
       let id = get_value("id");
       let sku = get_value("sku");
       let type_ = get_value("type");
-      let title = get_value("name");
+      let name = get_value("name");
       let description = get_value("description");
       let short_description = get_value("short_description");
       let regular_price = get_value("regular_price");
@@ -668,15 +747,15 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
       if !featured_image.is_empty() {
           images.push(ProductImage {
               src: featured_image.clone(),
-              name: if title.is_empty() { None } else { Some(title.clone()) },
-              alt: if title.is_empty() { None } else { Some(title.clone()) },
+              name: if name.is_empty() { None } else { Some(name.clone()) },
+              alt: if name.is_empty() { None } else { Some(name.clone()) },
           });
       }
       
       images.extend(gallery_images.iter().map(|img| ProductImage {
           src: img.trim().to_string(),
-          name: if title.is_empty() { None } else { Some(title.clone()) },
-          alt: if title.is_empty() { None } else { Some(title.clone()) },
+          name: if name.is_empty() { None } else { Some(name.clone()) },
+          alt: if name.is_empty() { None } else { Some(name.clone()) },
       }));
       
       // Handle attributes
@@ -727,7 +806,7 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
       
       Ok(WooCommerceProduct {
           id,
-          name: title,
+          name,
           sku,
           type_,
           parent,
@@ -757,14 +836,14 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
     println!("Updating product with sku: {} and JSON body: {}", product.sku, json_body);
     let res = self
       .woocommerce_client
-      .post(&format!("{}/wp-json/wc/v3/products/{}", self.base_url, product.id))
+      .put(&format!("{}/wp-json/wc/v3/products/{}", self.base_url, product.id))
       .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
       .body(json_body)
       .header("Content-Type", "application/json")
       .send()
       .await?;
     let body = res.text().await?; // Get response as a string
-    println!("Response body from update_product: {}", body);
+    println!("Response body with sku: {}, update_product: {}", product.sku, body);
     let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
 
     Ok(products)
@@ -797,18 +876,20 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
       &self,
       sku: &str,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    let full_url = format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku);
+    println!("fetch_product_by_sku : {}",full_url);
       let res = self
           .woocommerce_client
-          .get(&format!("{}/wp-json/wc/v3/products?sku={}", self.base_url, sku))
+          .get(&full_url)
           .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
           .header("Content-Type", "application/json")
           .send()
           .await?;
 
       let body = res.text().await?; // Get response as a string
-      println!("Response body from fetch_product_by_sku: {}", body);
-
+      
       let products: Vec<WooCommerceProduct> = serde_json::from_str(&body)?; // Parse JSON manually
+      println!("Response body from with sku: {}, fetch_product_by_sku: {:?}", sku , products);
 
       // If the list is empty, return an error
       if products.is_empty() {
@@ -916,5 +997,32 @@ where
             T::from_str(&num_str).map_err(|e| D::Error::custom(format!("Failed to parse number: {}", e)))
         },
         _ => Err(D::Error::custom("Expected string or number")),
+    }
+}
+// Deserialize Option<String> as None if the string is empty
+fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    
+    // Convert Some("") to None
+    match opt {
+        Some(s) if s.is_empty() => Ok(None),
+        _ => Ok(opt),
+    }
+}
+
+// Deserialize Option<bool> as None if value is Some(false)
+fn deserialize_optional_bool_none_if_false<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<bool>::deserialize(deserializer)?;
+    
+    // Convert Some(false) to None
+    match opt {
+        Some(false) => Ok(None),
+        _ => Ok(opt),
     }
 }

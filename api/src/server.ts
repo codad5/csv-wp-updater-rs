@@ -15,6 +15,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 import csv from 'csv-parser';
+import { cleanFieldMapping } from './helpers/helper';
 
 dotenv.config();
 
@@ -159,85 +160,91 @@ app.post('/upload', upload.single('csv'), async (req: Request, res: Response) =>
     }
 });
 
+
+
+// Usage in your endpoint:
 app.post('/process/:id', async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { 
-            priority = 1, 
-            startRow = 0, 
-            rowCount = 99999,
-            wordpress_field_mapping 
-        } = req.body as ProcessOptions;
-
-        const fileName = `${id}.csv`;
-        if (!uploadExists(fileName)) {
-            throw new Error('File not found');
-        }
-
-        if (!wordpress_field_mapping || Object.keys(wordpress_field_mapping).length === 0) {
-            throw new Error('Field mapping is required');
-        }
-
-        // Get the actual CSV file path
-        const filePath = getUploadFilePath(fileName);
-        
-        // Count total rows in the CSV
-        const totalEntries = await countCsvRows(filePath);
-        
-        // Calculate estimated processing time based on row count
-        const { estimatedTimeMs, estimatedTimeFormatted } = calculateEstimatedTime(
-            Math.min(totalEntries, rowCount)
-        );
-
-        if (await fileProcessingService.isFileInProcessing(id)) {
-            console.log('File is already in processing');
-            const progress = await fileProcessingService.getFileProgress(id) ?? 0;
-            
-            ResponseHelper.success<ProcessResponse>({
-                id,
-                file: fileName,
-                message: 'File is already in processing',
-                options: { priority, wordpress_field_mapping },
-                status: 'processing',
-                progress,
-                totalEntries,
-                estimatedTimeMs,
-                estimatedTime: estimatedTimeFormatted
-            });
-            return;
-        }
-        
-        const d = await mqConnection.sendToQueue(Queue.CSV_UPLOAD, {
-            file: fileName,
-            start_row: startRow,
-            row_count: rowCount,
-            wordpress_field_mapping: wordpress_field_mapping,
-        });
-
-        if (!d) {
-            throw new Error('Failed to send file to queue');
-        }
-
-        await fileProcessingService.startFileProcess(id);
-
-        ResponseHelper.success<ProcessResponse>({
-            id,
-            file: fileName,
-            message: 'File processing started',
-            options: { priority, wordpress_field_mapping },
-            status: 'queued',
-            progress: 0,
-            queuedAt: new Date(),
-            totalEntries,
-            estimatedTimeMs,
-            estimatedTime: estimatedTimeFormatted
-        });
-    } catch (error) {
-        ResponseHelper.error(
-            (error as Error).message ?? 'File processing failed',
-            { message: (error as Error).message ?? 'File processing failed' }
-        );
+  try {
+    const { id } = req.params;
+    const { 
+      priority = 1, 
+      startRow = 0, 
+      rowCount = 99999,
+      wordpress_field_mapping 
+    } = req.body as ProcessOptions;
+    
+    const fileName = `${id}.csv`;
+    if (!uploadExists(fileName)) {
+      throw new Error('File not found');
     }
+    
+    if (!wordpress_field_mapping || Object.keys(wordpress_field_mapping).length === 0) {
+      throw new Error('Field mapping is required');
+    }
+    
+    // Clean the field mapping to remove BOM characters
+    const cleanedMapping = cleanFieldMapping(wordpress_field_mapping);
+    
+    // Get the actual CSV file path
+    const filePath = getUploadFilePath(fileName);
+    
+    // Count total rows in the CSV
+    const totalEntries = await countCsvRows(filePath);
+    
+    // Calculate estimated processing time based on row count
+    const { estimatedTimeMs, estimatedTimeFormatted } = calculateEstimatedTime(
+      Math.min(totalEntries, rowCount)
+    );
+    
+    if (await fileProcessingService.isFileInProcessing(id)) {
+      console.log('File is already in processing');
+      const progress = await fileProcessingService.getFileProgress(id) ?? 0;
+      
+      ResponseHelper.success<ProcessResponse>({
+        id,
+        file: fileName,
+        message: 'File is already in processing',
+        options: { priority, wordpress_field_mapping: cleanedMapping },
+        status: 'processing',
+        progress,
+        totalEntries,
+        estimatedTimeMs,
+        estimatedTime: estimatedTimeFormatted
+      });
+      return;
+    }
+    
+    const d = await mqConnection.sendToQueue(Queue.CSV_UPLOAD, {
+      file: fileName,
+      start_row: startRow,
+      row_count: rowCount,
+      wordpress_field_mapping: cleanedMapping,
+    });
+    
+    if (!d) {
+      throw new Error('Failed to send file to queue');
+    }
+    
+    await fileProcessingService.startFileProcess(id);
+    
+    ResponseHelper.success<ProcessResponse>({
+      id,
+      file: fileName,
+      message: 'File processing started',
+      options: { priority, wordpress_field_mapping: cleanedMapping },
+      status: 'queued',
+      progress: 0,
+      queuedAt: new Date(),
+      totalEntries,
+      estimatedTimeMs,
+      estimatedTime: estimatedTimeFormatted
+    });
+  } catch (error) {
+    ResponseHelper.error(
+      (error as Error).message ?? 'File processing failed',
+      { message: (error as Error).message ?? 'File processing failed' }
+    );
+  }
 });
 
 app.get('/progress/:id', async (req: Request, res: Response) => {
