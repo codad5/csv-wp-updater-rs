@@ -479,6 +479,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
             let update_prod = self.update_product(&update_prod).await;
             match update_prod {
                 Ok(p) => {
+                    println!("Product updated successfully: {:?}", p); 
                     new_product_update = p;
                     // let mut progress = progress_clone.lock().await;
                     // progress.successful_rows += 1;
@@ -804,22 +805,29 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
     if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", sku).await {
         if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
             println!("Product found in Redis: {:?}", product);
-            return Some(product); // Found in Redis, return it
+            // Check if the SKU matches
+            if product.sku == sku {
+                return Some(product); // Found in Redis, return it
+            }
+            println!("SKU mismatch: expected {}, found {}", sku, product.sku);
         } else {
             println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
-    println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
+        println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
 
-    // If not found in Redis, fetch from WooCommerce API
-    match self.fetch_product_by_sku(sku).await {
-        Ok(product) => Some(product), // Found in WooCommerce, return it
-        Err(e) => {
-            println!("WooCommerce error: {:?}", e);
-            None // Product not found or API error
+        // If not found in Redis, fetch from WooCommerce API
+        match self.fetch_product_by_sku(sku).await {
+            Ok(product) => {
+                println!("Product found in WooCommerce: {:?}", product);
+                Some(product) // Found in WooCommerce, return it
+            }
+            Err(e) => {
+                println!("WooCommerce error: {:?}", e);
+                None // Product not found or API error
+            }
         }
     }
-}
 }
 
 
