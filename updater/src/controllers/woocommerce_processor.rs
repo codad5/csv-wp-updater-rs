@@ -473,6 +473,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
         if product.name != new_product_update.name || 
             product.description != new_product_update.description ||
             product.short_description != new_product_update.short_description ||
+            product.sale_price != new_product_update.sale_price ||
             product.regular_price != new_product_update.regular_price {
             
             let update_prod = product.merge(&new_product_update);
