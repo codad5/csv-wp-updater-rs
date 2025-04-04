@@ -63,7 +63,7 @@ struct WooCommerceProduct {
     
     // Variations support
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    variations: Vec<ProductVariation>,
+    variations: Vec<u64>,
     
     // Additional attributes
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -544,6 +544,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                 completed_count += 1;
             }
         }
+        FileProcessingManager::mark_progress(&file_id, 100, 100).await.unwrap_or(());
         FileProcessingManager::mark_as_done(&_file_id).await.unwrap_or(());
     
     Ok(())
@@ -914,7 +915,7 @@ fn group_products_by_parent(
     parent_id: &str,
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-    println!("Updating product with sku: {} and JSON body: {}", product.sku, json_body);
+    println!("Updating product with id {} variation with sku: {} and JSON body: {}",parent_id, product.sku, json_body);
     let res = self
       .woocommerce_client
       .put(&format!("{}/wp-json/wc/v3/products/{}/variations/{}", self.base_url, parent_id, product.id))
@@ -960,7 +961,7 @@ fn group_products_by_parent(
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     // amke id empty
     let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
-    println!("Creating product with JSON body: {} for product id {} and name {}", json_body, product.id, product.name);
+    println!("Creating product variation with JSON body: {} for product id {} and name {}", json_body, product.id, product.name);
     let res = self
       .woocommerce_client
       .post(&format!("{}/wp-json/wc/v3/products/{}/variations", self.base_url, parent_id))
@@ -970,7 +971,7 @@ fn group_products_by_parent(
       .send()
       .await?;
     let body = res.text().await?; // Get response as a string
-    println!("Response body from create_product: {} for product id {} and name {}", body, product.id, product.name);
+    println!("Response body from create_product_variation: {} for product id {} and name {}", body, product.id, product.name);
     let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
     
 
@@ -1017,7 +1018,7 @@ async fn fetch_product_variation_by_sku(
   ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
     // /wp-json/wc/v3/products/3420061/variations?sku=my_random_sku
     let full_url = format!("{}/wp-json/wc/v3/products/{}/variations?sku={}", self.base_url, parent_id, sku);
-    println!("fetch_product_by_sku : {}",full_url);
+    println!("fetch_product_variation_by_sku : {}",full_url);
       let res = self
           .woocommerce_client
           .get(&full_url)
@@ -1029,11 +1030,11 @@ async fn fetch_product_variation_by_sku(
       let body = res.text().await?; // Get response as a string
       
       let products: Vec<WooCommerceProduct> = serde_json::from_str(&body)?; // Parse JSON manually
-      println!("Response body from with sku: {}, fetch_product_by_sku: {:?}", sku , products);
+      println!("Response body from with sku: {}, fetch_product_variation_by_sku: {:?}", sku , products);
 
       // If the list is empty, return an error
       if products.is_empty() {
-          return Err(format!("No product found with SKU: {}", sku).into());
+          return Err(format!("No product variation found with SKU: {}", sku).into());
       }
 
       // Return the first product
@@ -1074,7 +1075,7 @@ async fn fetch_product_variation_by_sku(
 
         // If not found in Redis, fetch from WooCommerce API
         if let Some(parent_id) = parent_id {
-            match self.fetch_product_variation_by_sku(&sku, &parent_id).await {
+            match self.fetch_product_variation_by_sku( &parent_id, &sku).await {
                 Ok(product) => {
                     println!("Product found in WooCommerce: {:?}", product);
                     return Some(product); // Found in WooCommerce, return it
