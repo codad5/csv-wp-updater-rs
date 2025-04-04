@@ -109,7 +109,7 @@ impl RedisProgressManager {
         con.get(&key).await
     }
 
-    pub async fn set_progress(&self, id: &str, progress: u32) -> RedisResult<()> {
+    pub async fn set_progress(&self, id: &str, progress: f32) -> RedisResult<()> {
         let mut con = self.client.get_multiplexed_async_connection().await?;
         let key = format!("{}:progress:{}", self.prefix, id);
         con.set(key, progress).await
@@ -168,48 +168,59 @@ impl FileProcessingManager {
 
     pub async fn mark_progress(file_id: &str, page: u32, total: u32) -> RedisResult<()> {
         let instance = Self::instance().await.unwrap();
-        let progress = if total == 0 { 0 } else { (page * 100) / total };
+
+        let progress: f32 = if total == 0 {
+            0.0
+        } else {
+            (page as f32 / total as f32) * 100.0
+        };
+
         instance.redis.set_progress(file_id, progress).await?;
-        if progress == 100 {
+
+        if (progress - 100.0).abs() < f32::EPSILON {
             FileProcessingManager::mark_as_done(file_id).await?;
         }
+
         Ok(())
     }
+
 
     // a function to increment the progress by 1
   pub async fn increment_progress(file_id: &str, total: u32) -> RedisResult<()> {
         let instance = Self::instance().await.unwrap();
-        let progress = instance.redis.get_progress(file_id).await?;
 
+        let progress = instance.redis.get_progress(file_id).await?;
         let total_f = total as f32;
-        let progress_f = progress as f32;
+        let progress_f = progress;
 
         let mut total_processed = (progress_f * total_f / 100.0).ceil() + 1.0;
         if total_processed > total_f {
             total_processed = total_f;
         }
 
-        let progress = if total == 0 {
-            0
+        let progress_f32: f32 = if total == 0 {
+            0.0
         } else {
-            ((total_processed * 100.0) / total_f).ceil().min(100.0) as u32
+            ((total_processed * 100.0) / total_f).min(100.0)
         };
 
         println!(
-            "\x1b[31mCurrent progress: {}\x1b[0m\n\
+            "\x1b[31mCurrent progress: {:.2}%\x1b[0m\n\
             \x1b[32mTotal: {}\x1b[0m\n\
-            \x1b[34mTotal processed: {}\x1b[0m\n\
+            \x1b[34mTotal processed: {:.2}\x1b[0m\n\
             \x1b[33mfile_id: {}\x1b[0m\n",
-            progress, total, total_processed as u32, file_id
+            progress_f32, total, total_processed, file_id
         );
 
-        instance.redis.set_progress(file_id, progress).await?;
-        if progress == 100 {
+        instance.redis.set_progress(file_id, progress_f32).await?;
+
+        if (progress_f32 - 100.0).abs() < f32::EPSILON {
             FileProcessingManager::mark_as_done(file_id).await?;
         }
 
         Ok(())
     }
+
 
 
 
@@ -246,7 +257,7 @@ impl ModelDownloadManager {
     pub async fn start_model_download(model_name: &str, ttl: u64) -> RedisResult<()> {
         let instance = Self::instance().await?;
         instance.redis.set_with_ttl(model_name, ModelStatus::Queued, ttl).await?;
-        instance.redis.set_progress(model_name, 0).await
+        instance.redis.set_progress(model_name, 0.0).await
     }
 
     pub async fn mark_as_downloading(model_name: &str) -> RedisResult<()> {
@@ -257,7 +268,7 @@ impl ModelDownloadManager {
     pub async fn mark_as_completed(model_name: &str) -> RedisResult<()> {
         let instance = Self::instance().await?;
         instance.redis.set_status(model_name, ModelStatus::Completed).await?;
-        instance.redis.set_progress(model_name, 100).await
+        instance.redis.set_progress(model_name, 100.0).await
     }
 
     pub async fn mark_as_failed(model_name: &str) -> RedisResult<()> {
@@ -266,21 +277,22 @@ impl ModelDownloadManager {
     }
 
     pub async fn update_progress(model_name: &str, downloaded_bytes: u64, total_bytes: u64) -> RedisResult<()> {
-        let progress = if total_bytes == 0 {
-            0
+        let progress_f32 = if total_bytes == 0 {
+            0.0
         } else {
-            ((downloaded_bytes * 100) / total_bytes) as u32
+            (downloaded_bytes as f64 * 100.0 / total_bytes as f64) as f32
         };
-        
+
         let instance = Self::instance().await?;
-        instance.redis.set_progress(model_name, progress).await?;
-        
-        if progress == 100 {
+        instance.redis.set_progress(model_name, progress_f32).await?;
+
+        if (progress_f32 - 100.0).abs() < f32::EPSILON {
             Self::mark_as_completed(model_name).await?;
         }
-        
+
         Ok(())
     }
+
 
     pub async fn get_progress(model_name: &str) -> RedisResult<f32> {
         let instance = Self::instance().await?;
