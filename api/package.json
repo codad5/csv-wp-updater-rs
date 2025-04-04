@@ -5,7 +5,8 @@
   "scripts": {
     "build": "npx tsc",
     "start": "node dist/server.js",
-    "dev": "nodemon"
+    "dev": "node -r tsconfig-paths/register -r ts-node/register ./src/server.ts", 
+    "nodemon":"nodemon"
   },
   "author": "",
   "license": "ISC",

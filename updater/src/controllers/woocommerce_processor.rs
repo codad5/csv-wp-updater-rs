@@ -212,7 +212,7 @@ impl WooCommerceProduct {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.name.is_empty() {
+        if self.name.is_empty() && self.is_main_product() {
             return Err("Product name is required".to_string());
         }
         if self.sku.is_empty() {
@@ -358,8 +358,8 @@ impl WooCommerceProcessor {
 
 async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping, start_row: u32, no_of_rows: u32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // File id is file path without ext
-    let file_id = file_path.split('.').next().unwrap_or("");
-    FileProcessingManager::start_file_process(file_id, 10000).await.unwrap_or(());
+    let file_id = file_path.split('.').next().unwrap_or("").to_string();
+    FileProcessingManager::start_file_process(file_id.as_str(), 10000).await.unwrap_or(());
     
     // First pass to count total rows
     let mut rdr = Reader::from_path(get_upload_path(file_path))?;
@@ -400,79 +400,31 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     let semaphore = Arc::new(Semaphore::new(40)); // Limit to 40 concurrent tasks
     let redis_client = self.redis_client.clone();
     let progress_clone = Arc::clone(&self.progress);
-  
-    // Create a vector of futures for batch processing
-    let mut processing_futures = Vec::new();
+    let _file_id = Arc::new(file_id.to_string());
     
     let mut count = 0;
     let mut processed_count = 0;
     let mut skus: Vec<String> = vec![];
-    
-    // Skip records before start_row
-    let mut iter = rdr.records();
-    for _ in 0..start_row {
-        if iter.next().is_none() {
-            // We've reached the end of file before start_row
-            break;
-        }
-        count += 1;
-    }
-    
-    // Process only up to the specified number of rows
-    while let Some(result) = iter.next() {
-        if no_of_rows > 0 && processed_count >= no_of_rows {
-            break;
-        }
-        
-        let new_self = Arc::clone(&new_self);
-        println!("Processing record {}", count + 1);
-        
-        let record = match result {
-            Ok(rec) => rec,
-            Err(e) => {
-                println!("Error reading record: {:?}", e);
-                count += 1;
-                processed_count += 1;
-                continue;
-            }
-        };
-        
-        let sku = record.get(0).unwrap_or("").to_string();
-        // Check for duplicate SKU
-        if skus.contains(&sku) {
-            println!("SKU {} already processed, skipping...", sku);
-            count += 1;
-            continue;
-        } else {
-            skus.push(sku.clone());
-        }
-        
-        let record_type = record.get(24).unwrap_or("").to_string();
-        println!("Processing record : SKU={}, Type={}", sku, record_type);
 
-        // Map row fields
-        let row_map: HashMap<String, String> = headers
-            .iter()
-            .zip(record.iter())
-            .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
-            .collect();
+    let record_vec: Vec<Result<csv::StringRecord, csv::Error>> = rdr.records().collect();
 
-        println!("Row map: {:?}", row_map);
+    // i want to make it in this pattern 
+    // vec![(parent, all_child)]
+    // vec![(WooCommerceProduct, Vec<WooCommerceProduct>)]
 
-        // Clone necessary values for the async task
+    let grouped_products = Self::group_products_by_parent(record_vec, &headers, &reverse_mapping)?;
+    println!("Number of parents/main products: {}", grouped_products.len());
+    let mut parent_futures = Vec::new();
+    for (parent, children) in grouped_products {
         let redis_client_clone = redis_client.clone();
-        let row_map_clone = row_map.clone();
         let progress_clone = Arc::clone(&progress_clone);
         let semaphore_clone = Arc::clone(&semaphore);
-        let sku_clone = sku.clone();
-        
-        // Spawn a new task for each product
-        let task = tokio::spawn(async move {
-            println!("Processing product in new async way: {}", new_self.consumer_key);
-            // Acquire a permit from the semaphore
+        let new_self_clone = Arc::clone(&new_self);
+        let file_id_clone = Arc::clone(&_file_id); // Clone the file_id for each task
+
+        let parent_task = tokio::spawn(async move {
+            println!("Processing Parent: {}", parent.sku);
             let _permit = semaphore_clone.acquire().await.unwrap();
-            
-            // Establish Redis connection
             let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
                 Ok(conn) => conn,
                 Err(e) => {
@@ -483,80 +435,99 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     return;
                 }
             };
-            
-            println!("Redis connection established for SKU: {}", sku_clone);
-            
-            // Create product
-            let mut new_product_update = match Self::woo_product_builder(&row_map_clone) {
-                Ok(p) => p,
+
+            let mut parent_id = parent.id.clone();
+
+            match new_self_clone.handle_main_product(&parent, &mut redis_conn).await {
+                Ok(updated_parent) => {
+                    println!("Parent processed successfully: {:?}", updated_parent);
+                    parent_id = updated_parent.id.clone();
+                    let json_body = serde_json::to_string(&updated_parent).unwrap_or("{}".to_string());
+                    let _: () = redis_conn.hset("products", &updated_parent.sku, json_body).await.unwrap_or(());
+
+                    let mut progress = progress_clone.lock().await;
+                    progress.successful_rows += 1;
+                    progress.processed_rows += 1;
+                }
                 Err(e) => {
-                    println!("Error building product: {:?}", e);
+                    println!("Error processing parent: {:?}", e);
                     let mut progress = progress_clone.lock().await;
                     progress.failed_rows += 1;
                     progress.processed_rows += 1;
                     return;
                 }
             };
+            FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
 
-            println!("Product created from CSV on row {}: {:?}", count, new_product_update);
+            // Now spawn tasks for the children
+            let mut child_futures = Vec::new();
+            let parent_id = Arc::new(parent_id);
+            for child in children {
+                let redis_client_clone = redis_client_clone.clone();
+                let progress_clone = Arc::clone(&progress_clone);
+                let semaphore_clone = Arc::clone(&semaphore_clone);  // Clone from the already cloned version
+                let new_self_clone = Arc::clone(&new_self_clone);    // Clone from the already cloned version
+                let parent_id_clone = Arc::clone(&parent_id); // Clone the parent_id
+                let file_id_clone = Arc::clone(&file_id_clone); // Clone the file_id for each task
+                let child_task = tokio::spawn(async move { 
+                    println!("Processing Child: {}", child.sku);
 
-            if new_product_update.is_main_product() {
-                println!("Handling main product for SKU: {}", new_product_update.sku);
-                // Handle main product
-                match new_self.handle_main_product(&new_product_update, &mut redis_conn).await {
-                    Ok(p) => {
-                        println!("Main product handled successfully: {:?}", p);
-                        new_product_update = p;
-                    },
-                    Err(e) => {
-                        println!("Error handling main product: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                        return;
-                    }
-                }
-            } else {
-                println!("Handling variation for SKU: {}", new_product_update.sku);
-                return; //TODO: remove this return
+                    let _permit = semaphore_clone.acquire().await.unwrap();
+
+                    let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            println!("Redis connection error: {:?}", e);
+                            let mut progress = progress_clone.lock().await;
+                            progress.failed_rows += 1;
+                            progress.processed_rows += 1;
+                            return;
+                        }
+                    };
+
+                    match new_self_clone.handle_variation_product(&child, &parent_id_clone, &mut redis_conn).await {
+                        Ok(updated_child) => {
+                            println!("Child processed successfully: {:?} with parent_id: {:?}", updated_child, parent_id_clone);
+                            // parent_id = updated_parent.id.clone();
+                            let json_body = serde_json::to_string(&updated_child).unwrap_or("{}".to_string());
+                            let _: () = redis_conn.hset("products", &updated_child.sku, json_body).await.unwrap_or(());
+                            let mut progress = progress_clone.lock().await;
+                            progress.successful_rows += 1;
+                            progress.processed_rows += 1;
+                        }
+                        Err(e) => {
+                            println!("Error processing parent: {:?}", e);
+                            let mut progress = progress_clone.lock().await;
+                            progress.failed_rows += 1;
+                            progress.processed_rows += 1;
+                            return;
+                        }
+                    };
+                    FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
+                 });
+                 child_futures.push(child_task);
             }
-
-            // Cache the product in redis
-            let json_body = serde_json::to_string(&new_product_update).unwrap_or("{}".to_string());
-            let _: () = redis_conn.hset("products", &new_product_update.sku, json_body).await.unwrap_or(());
-            println!("Product with SKU {} cached in Redis", new_product_update.sku);
-            
-            // Update progress
-            let mut progress = progress_clone.lock().await;
-            progress.processed_rows += 1;
-            progress.successful_rows += 1;
+            // Wait for all children to complete
+            futures::future::join_all(child_futures).await;
         });
-        
-        processing_futures.push(task);
-        count += 1;
-        processed_count += 1;
+        parent_futures.push(parent_task);
+
     }
-    
-    println!("Total records selected for processing: {}", processed_count);
-    
-    // Wait for all tasks to complete and update progress
+
+    // futures::future::join_all(parent_futures).await;
+    // Mark as done only if we processed all requested rows successfully
+    // if completed_count == processed_count {
+        // FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
+    // }
+
     let mut completed_count = 0;
-    for task in processing_futures {
+    for task in parent_futures {
         if let Err(e) = task.await {
             println!("Task error: {:?}", e);
-            FileProcessingManager::mark_as_failed(file_id).await.unwrap_or(());
+            FileProcessingManager::mark_as_failed(file_id.as_str()).await.unwrap_or(());
         } else {
             completed_count += 1;
-            FileProcessingManager::mark_progress(file_id, completed_count, rows_to_process)
-                .await.unwrap_or(());
         }
-    }
-
-    println!("CSV processing completed for the specified rows");
-    
-    // Mark as done only if we processed all requested rows successfully
-    if completed_count == processed_count {
-        FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
     }
     
     Ok(())
@@ -568,7 +539,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
         return Err("Product is not a main product".into());
     }
     
-    let exists = self.get_or_fetch_product(redis_conn, &product.sku).await;
+    let exists = self.get_or_fetch_product(redis_conn, &product, None).await;
     let mut new_product_update = product.clone();
     println!("new product update: {:?}", new_product_update);
     
@@ -635,13 +606,13 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
 }
 
 
-async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_variation_product(&self, product: &WooCommerceProduct, parent_id: &str, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
     // if its parent id is empty then its a main product
     if product.parent.is_empty() {
         return Err("Product is a main product".into());
     }
     
-    let exists = self.get_or_fetch_product(redis_conn, &product.sku).await;
+    let exists = self.get_or_fetch_product(redis_conn, &product, Some(parent_id.to_string())).await;
     let mut new_product_update = product.clone();
     
     if let Some(product) = exists {
@@ -650,13 +621,10 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
         // if no change skip
         
         // Check core fields that would require an update
-        if product.name != new_product_update.name || 
-            product.description != new_product_update.description ||
-            product.short_description != new_product_update.short_description ||
-            product.regular_price != new_product_update.regular_price {
+        if product.has_changed(&new_product_update) {
             
             let update_prod = product.merge(&new_product_update);
-            let update_prod = self.update_product(&update_prod).await;
+            let update_prod = self.update_product_variation(&update_prod, parent_id).await;
             match update_prod {
                 Ok(p) => {
                     new_product_update = p;
@@ -683,7 +651,7 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
         
         let mut create_new_product = new_product_update.clone();
         create_new_product.id = String::new();
-        let new_product = self.create_product(&create_new_product).await;
+        let new_product = self.create_product_variation(&create_new_product, parent_id).await;
         match new_product {
             Ok(p) => {
                 new_product_update = p;
@@ -701,6 +669,71 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
     }
     
     Ok(new_product_update)
+}
+
+
+fn group_products_by_parent(
+    records: Vec<Result<csv::StringRecord, csv::Error>>,
+    headers: &csv::StringRecord,
+    reverse_mapping: &HashMap<String, String>,
+) -> Result<Vec<(WooCommerceProduct, Vec<WooCommerceProduct>)>, Box<dyn std::error::Error + Send + Sync>> {
+    // HashMap to store parent SKU/ID -> vector of children
+    let mut parent_children_map: std::collections::HashMap<String, Vec<WooCommerceProduct>> = std::collections::HashMap::new();
+    
+    // Vector to store parent products
+    let mut parent_products: Vec<WooCommerceProduct> = Vec::new();
+    
+    // Process each record once - O(n) single pass
+    for record_result in records {
+        let record = record_result?;
+        
+        // Create a HashMap from the record using the provided approach
+        let row_map: HashMap<String, String> = headers
+            .iter()
+            .zip(record.iter())
+            .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
+            .collect();
+        
+        // Build product from row_map
+        let product = match Self::woo_product_builder(&row_map) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("Error building product: {:?}", e);
+                continue;
+            }
+        };
+        
+        if product.is_main_product() {
+            // This is a parent or standalone product
+            // Add to parent products vector
+            parent_products.push(product.clone());
+            
+            // Ensure there's an entry in the map for this parent
+            if !parent_children_map.contains_key(&product.id) {
+                parent_children_map.insert(product.id.clone(), Vec::new());
+            }
+        } else {
+            // This is a child product
+            // Add to the parent's children vector in the map
+            parent_children_map
+                .entry(product.parent.clone())
+                .or_insert_with(Vec::new)
+                .push(product);
+        }
+    }
+    
+    // Create the final result structure - O(p) where p is number of parents
+    let result: Vec<(WooCommerceProduct, Vec<WooCommerceProduct>)> = parent_products
+        .into_iter()
+        .map(|parent| {
+            let children = parent_children_map
+                .remove(&parent.id)
+                .unwrap_or_else(Vec::new);
+            (parent, children)
+        })
+        .collect();
+    
+    Ok(result)
 }
 
  fn woo_product_builder(
@@ -848,6 +881,28 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
 
     Ok(products)
   }
+  
+  async fn update_product_variation(
+    &self,
+    product: &WooCommerceProduct,
+    parent_id: &str,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
+    println!("Updating product with sku: {} and JSON body: {}", product.sku, json_body);
+    let res = self
+      .woocommerce_client
+      .put(&format!("{}/wp-json/wc/v3/products/{}/variations/{}", self.base_url, parent_id, product.id))
+      .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+      .body(json_body)
+      .header("Content-Type", "application/json")
+      .send()
+      .await?;
+    let body = res.text().await?; // Get response as a string
+    println!("Response body with sku: {}, update_product: {}", product.sku, body);
+    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+
+    Ok(products)
+  }
 
   async fn create_product(
     &self,
@@ -859,6 +914,30 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
     let res = self
       .woocommerce_client
       .post(&format!("{}/wp-json/wc/v3/products", self.base_url))
+      .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+      .body(json_body)
+      .header("Content-Type", "application/json")
+      .send()
+      .await?;
+    let body = res.text().await?; // Get response as a string
+    println!("Response body from create_product: {} for product id {} and name {}", body, product.id, product.name);
+    let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+    
+
+    Ok(products)
+  }
+
+  async fn create_product_variation(
+    &self,
+    product: &WooCommerceProduct,
+    parent_id: &str,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    // amke id empty
+    let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
+    println!("Creating product with JSON body: {} for product id {} and name {}", json_body, product.id, product.name);
+    let res = self
+      .woocommerce_client
+      .post(&format!("{}/wp-json/wc/v3/products/{}/variations", self.base_url, parent_id))
       .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
       .body(json_body)
       .header("Content-Type", "application/json")
@@ -905,6 +984,42 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
   }
 
 
+async fn fetch_product_variation_by_sku(
+      &self,
+      parent_id: &str,
+      sku: &str,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    // /wp-json/wc/v3/products/3420061/variations?sku=my_random_sku
+    let full_url = format!("{}/wp-json/wc/v3/products/{}/variations?sku={}", self.base_url, parent_id, sku);
+    println!("fetch_product_by_sku : {}",full_url);
+      let res = self
+          .woocommerce_client
+          .get(&full_url)
+          .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+          .header("Content-Type", "application/json")
+          .send()
+          .await?;
+
+      let body = res.text().await?; // Get response as a string
+      
+      let products: Vec<WooCommerceProduct> = serde_json::from_str(&body)?; // Parse JSON manually
+      println!("Response body from with sku: {}, fetch_product_by_sku: {:?}", sku , products);
+
+      // If the list is empty, return an error
+      if products.is_empty() {
+          return Err(format!("No product found with SKU: {}", sku).into());
+      }
+
+      // Return the first product
+      let found_product = products.into_iter().next().unwrap();
+      if found_product.sku != sku {
+        return Err(format!("Product SKU mismatch: expected {}, found {}", sku, found_product.sku).into());
+      }
+      Ok(found_product)
+  }
+
+
+
   async fn get_progress(&self) -> ProcessingProgress {
     self.progress.lock().await.clone()
   }
@@ -912,10 +1027,12 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
   async fn get_or_fetch_product(
     &self,
     redis_conn: &mut MultiplexedConnection,
-    sku: &str,
+    product : &WooCommerceProduct,
+    parent_id: Option<String>,
 ) -> Option<WooCommerceProduct> {
     // Try to get the product from Redis
-    if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", sku).await {
+    let sku = product.sku.clone();
+    if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
         if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
             println!("Product found in Redis: {:?}", product);
             // Check if the SKU matches
@@ -930,7 +1047,19 @@ async fn handle_variation_product(&self, product: &WooCommerceProduct, redis_con
         println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
 
         // If not found in Redis, fetch from WooCommerce API
-        match self.fetch_product_by_sku(sku).await {
+        if let Some(parent_id) = parent_id {
+            match self.fetch_product_variation_by_sku(&sku, &parent_id).await {
+                Ok(product) => {
+                    println!("Product found in WooCommerce: {:?}", product);
+                    return Some(product); // Found in WooCommerce, return it
+                }
+                Err(e) => {
+                    println!("WooCommerce error: {:?}", e);
+                    return None // Product not found or API error
+                }
+            }
+        }
+        match self.fetch_product_by_sku(&sku).await {
             Ok(product) => {
                 println!("Product found in WooCommerce: {:?}", product);
                 Some(product) // Found in WooCommerce, return it
