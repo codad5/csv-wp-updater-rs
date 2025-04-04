@@ -371,6 +371,9 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     // Reset progress
     let mut progress = self.progress.lock().await;
     *progress = ProcessingProgress::default();
+
+
+    let no_of_rows = 60_000;
     
     // Set total rows to process based on parameters
     let rows_to_process = if no_of_rows == 0 {
