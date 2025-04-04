@@ -482,7 +482,9 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                 let parent_id_clone = Arc::clone(&parent_id); // Clone the parent_id
                 let file_id_clone = Arc::clone(&file_id_clone); // Clone the file_id for each task
                 let child_task = tokio::spawn(async move { 
-                    println!("Processing Child: {}", child.sku);
+                    // println!("Processing Child: {} \nAvailable permits: {}", child.sku, semaphore_clone.available_permits());
+                    // print child sku and avaliable permit in purple
+                    println!("\x1b[35mProcessing Child: {} \nAvailable permits: {}\x1b[0m", child.sku, semaphore_clone.available_permits());
 
                     let _permit = semaphore_clone.acquire().await.unwrap();
                     println!("permit acquired for child: {}", child.sku);
