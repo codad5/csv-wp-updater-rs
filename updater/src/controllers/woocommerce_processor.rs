@@ -515,9 +515,12 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                             let mut progress = progress_clone.lock().await;
                             progress.failed_rows += 1;
                             progress.processed_rows += 1;
-                            return;
+                            // return;
                         }
                     };
+                    // print available permits
+                    println!("Available permits: {}", semaphore_clone.available_permits());
+                    drop(_permit); // Explicitly drop the permit here to release it
                  });
                  child_futures.push(child_task);
             }
