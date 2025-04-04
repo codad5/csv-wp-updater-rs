@@ -434,7 +434,9 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         let file_id_clone = Arc::clone(&_file_id); // Clone the file_id for each task
 
         let parent_task = tokio::spawn(async move {
-            println!("Processing Parent: {}", parent.sku);
+            // println!("Processing Parent: {}", parent.sku);
+            // print parent in yellow with avaliable permit in purple
+            println!("\x1b[33mProcessing Parent: {} \nAvailable permits: {}\x1b[0m", parent.sku, semaphore_clone.available_permits());
             let _permit = semaphore_clone.acquire().await.unwrap();
             let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
                 Ok(conn) => conn,
