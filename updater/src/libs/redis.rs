@@ -192,7 +192,7 @@ impl FileProcessingManager {
         let progress = if total == 0 {
             0
         } else {
-            ((total_processed * 100.0) / total_f).floor() as u32
+            ((total_processed * 100.0) / total_f).ceil().min(100.0) as u32
         };
 
         println!(
@@ -210,6 +210,7 @@ impl FileProcessingManager {
 
         Ok(())
     }
+
 
 
 
