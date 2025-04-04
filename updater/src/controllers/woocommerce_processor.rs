@@ -381,6 +381,9 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     } else {
         no_of_rows.min(total_row_count - start_row)
     };
+
+    let max_rows_to_process = 40_000;
+    let rows_to_process = rows_to_process.min(max_rows_to_process);
     
     progress.total_rows = rows_to_process as usize;
     drop(progress);
