@@ -175,7 +175,7 @@ impl WooCommerceProduct {
 
         let mut type_ = merge_string(&self.type_, &other.type_);
         // check if type is in array of simple, grouped, external and variable
-        if !["simple", "grouped", "external", "variable"].contains(&type_.as_str()) {
+        if !["simple", "grouped", "external", "variable",  "variation"].contains(&type_.as_str()) {
             type_  =  String::new(); // set to empty string if not valid
              // Return self if type is not valid
         } 
@@ -221,9 +221,9 @@ impl WooCommerceProduct {
         if self.regular_price.is_empty() {
             return Err("Product regular price is required".to_string());
         }
-        if self.description.is_empty() {
-            return Err("Product description is required".to_string());
-        }
+        // if self.description.is_empty() {
+        //     return Err("Product description is required".to_string());
+        // }
         Ok(())
     }
 
@@ -450,19 +450,20 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     let json_body = serde_json::to_string(&updated_parent).unwrap_or("{}".to_string());
                     let _: () = redis_conn.hset("products", &updated_parent.sku, json_body).await.unwrap_or(());
 
+                    FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
                     let mut progress = progress_clone.lock().await;
                     progress.successful_rows += 1;
                     progress.processed_rows += 1;
                 }
                 Err(e) => {
                     println!("Error processing parent: {:?}", e);
+                    FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
                     let mut progress = progress_clone.lock().await;
                     progress.failed_rows += 1;
                     progress.processed_rows += 1;
                     return;
                 }
             };
-            FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
 
             // Now spawn tasks for the children
             let mut child_futures = Vec::new();
@@ -496,19 +497,20 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                             // parent_id = updated_parent.id.clone();
                             let json_body = serde_json::to_string(&updated_child).unwrap_or("{}".to_string());
                             let _: () = redis_conn.hset("products", &updated_child.sku, json_body).await.unwrap_or(());
+                            FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
                             let mut progress = progress_clone.lock().await;
                             progress.successful_rows += 1;
                             progress.processed_rows += 1;
                         }
                         Err(e) => {
-                            println!("Error processing parent: {:?}", e);
+                            println!("Error processing child: {:?}", e);
+                            FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
                             let mut progress = progress_clone.lock().await;
                             progress.failed_rows += 1;
                             progress.processed_rows += 1;
                             return;
                         }
                     };
-                    FileProcessingManager::increment_progress(file_id_clone.as_str(), total_row_count).await.unwrap_or(());
                  });
                  child_futures.push(child_task);
             }
@@ -531,18 +533,18 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     // futures::future::join_all(parent_futures).await;
     // Mark as done only if we processed all requested rows successfully
     // if completed_count == processed_count {
-        // FileProcessingManager::mark_as_done(file_id).await.unwrap_or(());
-    // }
-
-    let mut completed_count = 0;
-    for task in parent_futures {
-        if let Err(e) = task.await {
-            println!("Task error: {:?}", e);
-            FileProcessingManager::mark_as_failed(file_id.as_str()).await.unwrap_or(());
-        } else {
-            completed_count += 1;
+        // }
+        
+        let mut completed_count = 0;
+        for task in parent_futures {
+            if let Err(e) = task.await {
+                println!("Task error: {:?}", e);
+                FileProcessingManager::mark_as_failed(file_id.as_str()).await.unwrap_or(());
+            } else {
+                completed_count += 1;
+            }
         }
-    }
+        FileProcessingManager::mark_as_done(&_file_id).await.unwrap_or(());
     
     Ok(())
 }
@@ -760,13 +762,23 @@ fn group_products_by_parent(
 
       let id = get_value("id");
       let sku = get_value("sku");
-      let type_ = get_value("type");
+      let mut type_ = get_value("type");
       let name = get_value("name");
       let description = get_value("description");
       let short_description = get_value("short_description");
       let regular_price = get_value("regular_price");
       let sale_price = get_value("sale_price");
       let parent = get_value("parent_id");
+
+      // if parent is not empty then type is variation
+      if !parent.is_empty() {
+          type_ = "variation".to_string();
+      } else {
+          // check if type is in array of simple, grouped, external and variable
+          if !["simple", "grouped", "external", "variable", "variation"].contains(&type_.as_str()) {
+              type_  =  String::new(); // set to empty string if not valid
+          } 
+      }
       
       // Handle categories
       let categories: Vec<Category> = get_value("category_ids")
