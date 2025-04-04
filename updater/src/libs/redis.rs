@@ -115,11 +115,11 @@ impl RedisProgressManager {
         con.set(key, progress).await
     }
 
-    pub async fn get_progress(&self, id: &str) -> RedisResult<u32> {
+    pub async fn get_progress(&self, id: &str) -> RedisResult<f32> {
         let mut con = self.client.get_multiplexed_async_connection().await?;
         let key = format!("{}:progress:{}", self.prefix, id);
-        let progress: Option<u32> = con.get(&key).await?;
-        Ok(progress.unwrap_or(0))
+        let progress: Option<f32> = con.get(&key).await?;
+        Ok(progress.unwrap_or(0.0))
     }
 
     pub async fn set_with_ttl(&self, id: &str, status: impl ToString, ttl: u64) -> RedisResult<()> {
@@ -214,7 +214,7 @@ impl FileProcessingManager {
 
 
 
-    pub async fn get_progress(file_id: &str) -> RedisResult<u32> {
+    pub async fn get_progress(file_id: &str) -> RedisResult<f32> {
         Self::instance().await.unwrap().redis.get_progress(file_id).await
     }
 }
@@ -282,7 +282,7 @@ impl ModelDownloadManager {
         Ok(())
     }
 
-    pub async fn get_progress(model_name: &str) -> RedisResult<u32> {
+    pub async fn get_progress(model_name: &str) -> RedisResult<f32> {
         let instance = Self::instance().await?;
         instance.redis.get_progress(model_name).await
     }
@@ -366,7 +366,7 @@ pub async fn update_model_progress(model_name: &str, downloaded_bytes: u64, tota
     ModelDownloadManager::update_progress(model_name, downloaded_bytes, total_bytes).await
 }
 
-pub async fn get_model_progress(model_name: &str) -> RedisResult<u32> {
+pub async fn get_model_progress(model_name: &str) -> RedisResult<f32> {
     ModelDownloadManager::get_progress(model_name).await
 }
 
@@ -378,7 +378,7 @@ pub async fn mark_progress(file_id: &str, page: u32, total: u32) -> RedisResult<
     FileProcessingManager::mark_progress(file_id, page, total).await
 }
 
-pub async fn get_progress(prefix: &str, id: &str) -> RedisResult<u32> {
+pub async fn get_progress(prefix: &str, id: &str) -> RedisResult<f32> {
     match prefix {
         "processing" => {
             ModelDownloadManager::get_progress(id).await
@@ -386,6 +386,6 @@ pub async fn get_progress(prefix: &str, id: &str) -> RedisResult<u32> {
         "model" => {
             ModelDownloadManager::get_progress(id).await
         },
-        _ => Ok(0)
+        _ => Ok(0.0)
     }
 }
