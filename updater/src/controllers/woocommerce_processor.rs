@@ -485,6 +485,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     println!("Processing Child: {}", child.sku);
 
                     let _permit = semaphore_clone.acquire().await.unwrap();
+                    println!("permit acquired for child: {}", child.sku);
 
                     let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
                         Ok(conn) => conn,
