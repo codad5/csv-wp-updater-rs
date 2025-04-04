@@ -181,15 +181,13 @@ impl FileProcessingManager {
    pub async fn increment_progress(file_id: &str, total: u32) -> RedisResult<()> {
     let instance = Self::instance().await.unwrap();
     let progress = instance.redis.get_progress(file_id).await?;
-    
+    //progress = (current/total) * 100
+    // current = (progress * total) / 100
+    // current = (progress * total) / 100 + 1
     // FIX: Prevent integer division truncation
-    let total_processed = ((progress as f64) / 100.0 * (total as f64)).round() as u32;
+    let total_processed = (progress * total) / 100;
     let total_processed = total_processed + 1;
-    let new_progress = if total == 0 { 0 } else {
-        let yy = (total_processed  * 100) / total;
-        println!("solved: {} / {} = {}", total_processed, total, yy);
-        yy
-    };
+    let progress = if total == 0 { 0 } else { (total_processed * 100) / total };
 
     // Colored terminal output 
     println!(
@@ -197,11 +195,11 @@ impl FileProcessingManager {
         \x1b[32mTotal: {}\x1b[0m\n\
         \x1b[34mTotal processed: {}\x1b[0m
         \x1b[33file_id: {}\x1b[0m\n",
-        new_progress, total, total_processed, file_id
+        progress, total, total_processed, file_id
     );
 
-    instance.redis.set_progress(file_id, new_progress).await?;
-    if new_progress == 100 {
+    instance.redis.set_progress(file_id, progress).await?;
+    if progress == 100 {
         FileProcessingManager::mark_as_done(file_id).await?;
     }
     Ok(())
