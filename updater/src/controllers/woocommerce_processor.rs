@@ -408,6 +408,10 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
 
     let record_vec: Vec<Result<csv::StringRecord, csv::Error>> = rdr.records().collect();
 
+    let record_vec = record_vec.into_iter().skip(start_row as usize).collect::<Vec<_>>();
+    let record_vec = record_vec.into_iter().take(rows_to_process as usize).collect::<Vec<_>>();
+    let total_row_count = record_vec.len() as u32;
+
     // i want to make it in this pattern 
     // vec![(parent, all_child)]
     // vec![(WooCommerceProduct, Vec<WooCommerceProduct>)]
@@ -416,6 +420,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     println!("Number of parents/main products: {}", grouped_products.len());
     let mut parent_futures = Vec::new();
     for (parent, children) in grouped_products {
+        println!("\x1b[33mNumber of children for parent {}: {}\x1b[0m", parent.sku, children.len());
         let redis_client_clone = redis_client.clone();
         let progress_clone = Arc::clone(&progress_clone);
         let semaphore_clone = Arc::clone(&semaphore);
@@ -508,7 +513,16 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                  child_futures.push(child_task);
             }
             // Wait for all children to complete
-            futures::future::join_all(child_futures).await;
+            for child_task in child_futures {
+                if let Err(e) = child_task.await {
+                    println!("Child task error: {:?}", e);
+                    let mut progress = progress_clone.lock().await;
+                    progress.failed_rows += 1;
+                    progress.processed_rows += 1;
+                } else {
+                    count += 1;
+                }
+            }
         });
         parent_futures.push(parent_task);
 
@@ -710,7 +724,7 @@ fn group_products_by_parent(
             
             // Ensure there's an entry in the map for this parent
             if !parent_children_map.contains_key(&product.id) {
-                parent_children_map.insert(product.id.clone(), Vec::new());
+                parent_children_map.insert(product.sku.clone(), Vec::new());
             }
         } else {
             // This is a child product
@@ -727,7 +741,7 @@ fn group_products_by_parent(
         .into_iter()
         .map(|parent| {
             let children = parent_children_map
-                .remove(&parent.id)
+                .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
             (parent, children)
         })

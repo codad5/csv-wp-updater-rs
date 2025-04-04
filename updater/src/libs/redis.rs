@@ -184,14 +184,20 @@ impl FileProcessingManager {
     
     // FIX: Prevent integer division truncation
     let total_processed = ((progress as f64) / 100.0 * (total as f64)).round() as u32;
-    let new_progress = if total == 0 { 0 } else { ((total_processed + 1) * 100 / total) };
+    let total_processed = total_processed + 1;
+    let new_progress = if total == 0 { 0 } else {
+        let yy = total_processed  * 100 / total;
+        println!("solved: {} / {} = {}", total_processed, total, yy);
+        yy
+    };
 
-    // Colored terminal output
+    // Colored terminal output 
     println!(
         "\x1b[31mCurrent progress: {}\x1b[0m\n\
         \x1b[32mTotal: {}\x1b[0m\n\
-        \x1b[34mTotal processed: {}\x1b[0m",
-        new_progress, total, total_processed + 1
+        \x1b[34mTotal processed: {}\x1b[0m
+        \x1b[33file_id: {}\x1b[0m\n",
+        new_progress, total, total_processed, file_id
     );
 
     instance.redis.set_progress(file_id, new_progress).await?;
