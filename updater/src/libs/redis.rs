@@ -170,7 +170,6 @@ impl FileProcessingManager {
         let instance = Self::instance().await.unwrap();
         let progress = if total == 0 { 0 } else { (page * 100) / total };
         instance.redis.set_progress(file_id, progress).await?;
-        
         if progress == 100 {
             FileProcessingManager::mark_as_done(file_id).await?;
         }
@@ -178,32 +177,40 @@ impl FileProcessingManager {
     }
 
     // a function to increment the progress by 1
-   pub async fn increment_progress(file_id: &str, total: u32) -> RedisResult<()> {
-    let instance = Self::instance().await.unwrap();
-    let progress = instance.redis.get_progress(file_id).await?;
-    //progress = (current/total) * 100
-    // current = (progress * total) / 100
-    // current = (progress * total) / 100 + 1
-    // FIX: Prevent integer division truncation
-    let total_processed = (progress * total) / 100;
-    let total_processed = total_processed + 1;
-    let progress = if total == 0 { 0 } else { (total_processed * 100) / total };
+  pub async fn increment_progress(file_id: &str, total: u32) -> RedisResult<()> {
+        let instance = Self::instance().await.unwrap();
+        let progress = instance.redis.get_progress(file_id).await?;
 
-    // Colored terminal output 
-    println!(
-        "\x1b[31mCurrent progress: {}\x1b[0m\n\
-        \x1b[32mTotal: {}\x1b[0m\n\
-        \x1b[34mTotal processed: {}\x1b[0m
-        \x1b[33file_id: {}\x1b[0m\n",
-        progress, total, total_processed, file_id
-    );
+        let total_f = total as f32;
+        let progress_f = progress as f32;
 
-    instance.redis.set_progress(file_id, progress).await?;
-    if progress == 100 {
-        FileProcessingManager::mark_as_done(file_id).await?;
+        let mut total_processed = (progress_f * total_f / 100.0).ceil() + 1.0;
+        if total_processed > total_f {
+            total_processed = total_f;
+        }
+
+        let progress = if total == 0 {
+            0
+        } else {
+            ((total_processed * 100.0) / total_f).floor() as u32
+        };
+
+        println!(
+            "\x1b[31mCurrent progress: {}\x1b[0m\n\
+            \x1b[32mTotal: {}\x1b[0m\n\
+            \x1b[34mTotal processed: {}\x1b[0m\n\
+            \x1b[33mfile_id: {}\x1b[0m\n",
+            progress, total, total_processed as u32, file_id
+        );
+
+        instance.redis.set_progress(file_id, progress).await?;
+        if progress == 100 {
+            FileProcessingManager::mark_as_done(file_id).await?;
+        }
+
+        Ok(())
     }
-    Ok(())
-    }
+
 
 
     pub async fn get_progress(file_id: &str) -> RedisResult<u32> {
