@@ -186,7 +186,7 @@ impl FileProcessingManager {
     let total_processed = ((progress as f64) / 100.0 * (total as f64)).round() as u32;
     let total_processed = total_processed + 1;
     let new_progress = if total == 0 { 0 } else {
-        let yy = total_processed  * 100 / total;
+        let yy = (total_processed  * 100) / total;
         println!("solved: {} / {} = {}", total_processed, total, yy);
         yy
     };
