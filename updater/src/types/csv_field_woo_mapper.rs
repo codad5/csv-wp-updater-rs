@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, default};
 
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -55,6 +55,15 @@ pub struct WordPressFieldMapping {
 pub struct AttributeMapping {
     pub column: String,
     pub variable: bool,
+}
+
+impl AttributeMapping {
+    pub fn default() -> Self {
+        Self { 
+            column: String::new(),
+            variable: false 
+        }
+    }
 }
 
 pub fn default_priority() -> u8 {
@@ -355,7 +364,10 @@ impl WordPressFieldMapping {
     pub fn get_inverted_attribute(&self) -> HashMap<String, AttributeMapping> {
         let inverted: HashMap<String, AttributeMapping> = self.attributes
         .iter()
-        .map(|(k, v)| (v.clone(), k.clone()))
+        .map(|(k, v)| (v.clone().column, AttributeMapping{
+            column:k.clone(),
+            variable:v.clone().variable
+        }))
         .collect();
 
         return inverted;

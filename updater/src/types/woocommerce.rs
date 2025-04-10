@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 
+use super::csv_field_woo_mapper::AttributeMapping;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WooCommerceProduct {
@@ -243,7 +245,7 @@ impl WooCommerceProduct {
         if self.sku.is_empty() {
             return Err("Product SKU is required".to_string());
         }
-        if self.regular_price.is_empty() {
+        if self.regular_price.is_empty() && self.type_ == String::from("simple") {
             return Err("Product regular price is required".to_string());
         }
         // if self.description.is_empty() {
@@ -446,11 +448,15 @@ pub enum WooProduct {
     Variation(ProductVariation),
 }
 
-pub fn woo_build_product(product: &HashMap<String, String>, attribute: &HashMap<String, String>) -> Option<WooProduct> {
+pub fn woo_build_product(product: &HashMap<String, String>, attribute: &HashMap<String, AttributeMapping>) -> Option<WooProduct> {
     let binding = "".to_string();
     let parent = product.get("parent_id").unwrap_or(&binding).trim();
     let sku = product.get("sku").unwrap_or(&binding).trim();
-    
+    println!("\x1b[38;5;208mProduct Debug Info: {{ SKU: {}, Parent SKU: {}, Is Child: {} }}\x1b[0m",
+        sku,
+        parent,
+        !parent.is_empty() && parent != sku
+    );
     if parent.is_empty() || parent  == sku {
         // Build a main product
         match woo_product_builder(product, attribute) {
@@ -469,11 +475,12 @@ pub fn woo_build_product(product: &HashMap<String, String>, attribute: &HashMap<
 
 
 
-pub fn woo_product_builder(
+pub fn  woo_product_builder(
     product: &HashMap<String, String>,
-    attribute_map: &HashMap<String, String>
+    attribute_map: &HashMap<String, AttributeMapping>
 ) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
-      
+    
+    
     let get_value = |key: &str| -> String {
         product.get(key).unwrap_or(&"".to_string()).trim().to_string()
     };
@@ -486,7 +493,7 @@ pub fn woo_product_builder(
     let short_description = get_value("short_description");
     let regular_price = get_value("regular_price");
     let sale_price = get_value("sale_price");
-    let parent = get_value("parent_id");
+    let parent = String::new();
     let feature_words = ["yes", "true", "1"];
     let featured = feature_words.contains(&get_value("featured").to_lowercase().as_str());
     let dimensions =  build_product_dimensions(product);
@@ -502,11 +509,12 @@ pub fn woo_product_builder(
     }
       
       // Handle categories
+      println!("categories {:?}",  get_value("category_ids"));
       let categories: Vec<Category> = get_value("category_ids")
-          .split('/')
+          .split('|')
           .filter(|c| !c.trim().is_empty())
           .map(|cat| Category {
-              id: None,
+              id: cat.trim().parse().ok(),
               name: cat.trim().to_string(),
               slug: cat.trim().to_lowercase().replace(' ', "-"),
           })
@@ -567,19 +575,22 @@ pub fn woo_product_builder(
           });
       }
       for (key, value) in attribute_map.iter() {
-            if !value.is_empty() {
-                attributes.push(ProductAttribute {
-                    name: key.clone(),
-                    position: None,
-                    visible: Some(true),
-                    variation: Some(type_ != "simple"),
-                    options: value.split(',')
-                        .map(|v| v.trim().to_string())
-                        .filter(|v| !v.is_empty())
-                        .collect(),
-                });
-            }
+        if !value.column.is_empty() {
+            attributes.push(ProductAttribute {
+                name: key.clone(),
+                position: None,
+                visible: Some(value.variable),
+                variation: Some(type_ != "simple"),
+                options: value.column.split(',')
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                    .collect(),
+            });
         }
+    }
+
+
+    println!("variation attribute : {:?}", attributes);
 
       // Handle stock quantity
       let stock_quantity = get_value("stock_quantity").parse().ok();
@@ -625,7 +636,7 @@ pub fn woo_product_builder(
 
 pub fn woo_product_variation_builder(
     product: &HashMap<String, String>,
-    attribute_map: &HashMap<String, String>,
+    attribute_map: &HashMap<String, AttributeMapping>,
 ) -> Result<ProductVariation, Box<dyn std::error::Error + Send + Sync>> {
     let get_value = |key: &str| -> String {
         product.get(key).unwrap_or(&"".to_string()).trim().to_string()
@@ -672,13 +683,15 @@ pub fn woo_product_variation_builder(
     // }
 
     for (key, value) in attribute_map.iter() {
-            if !value.is_empty() {
+            if !value.column.is_empty() {
                 attributes.push(VariationAttribute {
                     name: key.clone(),
-                    option: value.to_owned()
+                    option: value.column.to_owned()
                 });
             }
         }
+
+    println!("variation attribute : {:?}", attributes);
     
     // Handle stock quantity and status
     let stock_quantity = get_value("stock_quantity").parse().ok();

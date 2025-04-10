@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use crate::helper::clean_string;
 use crate::helper::file_helper::get_upload_path;
 use crate::libs::redis::{get_progress, FileProcessingManager};
-use crate::types::csv_field_woo_mapper::WordPressFieldMapping;
+use crate::types::csv_field_woo_mapper::{AttributeMapping, WordPressFieldMapping};
 use crate::types::woocommerce::{woo_build_product, woo_product_builder, ProductVariation, WooCommerceProduct, WooProduct};
 use crate::worker::{NewFileProcessQueue};
 
@@ -113,7 +113,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         })
         .collect();
     let reverse_attribute_mapping = field_mapping.get_inverted_attribute();
-    let reverse_attribute_mapping: HashMap<String, String> = reverse_attribute_mapping.iter()
+    let reverse_attribute_mapping: HashMap<String, AttributeMapping> = reverse_attribute_mapping.iter()
         .map(|(k, v)| {
             let clean_key = clean_string(k);
             (clean_key, v.clone())
@@ -157,7 +157,6 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         let parent_task = tokio::spawn(async move {
             // println!("Processing Parent: {}", parent.sku);
             // print parent in yellow with avaliable permit in purple
-            println!("\x1b[33mProcessing Parent: {} \nAvailable permits: {}\x1b[0m", parent.sku, semaphore_clone.available_permits());
             let _permit = semaphore_clone.acquire().await.unwrap();
             let mut redis_conn = match redis_client_clone.get_multiplexed_async_connection().await {
                 Ok(conn) => conn,
@@ -285,7 +284,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
 
 async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
     // if its parent id is empty then its a main product
-    if !product.parent.is_empty() {
+    if !product.parent.is_empty() && product.parent != product.sku {
         return Err("Product is not a main product".into());
     }
     
@@ -426,13 +425,16 @@ fn group_products_by_parent(
     records: Vec<Result<csv::StringRecord, csv::Error>>,
     headers: &csv::StringRecord,
     reverse_mapping: &HashMap<String, String>,
-    attribute_reverse: &HashMap<String, String>
+    attribute_reverse: &HashMap<String, AttributeMapping>
 ) -> Result<Vec<(WooCommerceProduct, Vec<ProductVariation>)>, Box<dyn std::error::Error + Send + Sync>> {
     // HashMap to store parent SKU/ID -> vector of children
     let mut parent_children_map: std::collections::HashMap<String, Vec<ProductVariation>> = std::collections::HashMap::new();
     
     // Vector to store parent products
     let mut parent_products: Vec<WooCommerceProduct> = Vec::new();
+
+    println!("\x1b[38;5;82mReverse Mapping Debug Info: {:?}\x1b[0m", reverse_mapping);
+    println!("\x1b[38;5;196mAttribute Reverse Mapping Debug Info: {:?}\x1b[0m", attribute_reverse);
     
     // Process each record once - O(n) single pass
     for record_result in records {
@@ -445,11 +447,21 @@ fn group_products_by_parent(
             .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
             .collect();
 
-        let attribute_row_map: HashMap<String, String> = headers
+        let attribute_row_map: HashMap<String, AttributeMapping> = headers
             .iter()
             .zip(record.iter())
-            .map(|(h, v)| (attribute_reverse.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
+            .map(|(h, v)|{
+                let binding = AttributeMapping::default();
+                let vad  = attribute_reverse.get(h).unwrap_or(&binding);
+                (vad.clone().column.to_lowercase(), AttributeMapping{
+                    column : v.to_string(), 
+                    variable:vad.variable.clone()
+                })
+            })
             .collect();
+
+        println!("\x1b[38;5;45mProduct HashMap Debug Info: {:?}\x1b[0m", row_map);
+        println!("\x1b[38;5;208mProduct HashMap Debug Info: {:?}\x1b[0m", attribute_row_map);
         
         // Build product from row_map using the new woo_build_product function
         match woo_build_product(&row_map, &attribute_row_map) {
@@ -668,7 +680,7 @@ async fn fetch_product_variation_by_sku(
         if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
             println!("Product found in Redis: {:?}", product);
             // Check if the SKU matches
-            if product.sku == sku {
+            if product.sku == sku && !product.id.is_empty() {
                 return Some(product); // Found in Redis, return it
             }
             println!("SKU mismatch: expected {}, found {}", sku, product.sku);
@@ -701,7 +713,7 @@ async fn fetch_product_variation_by_sku(
         if let Ok(product) = serde_json::from_str::<ProductVariation>(&json) {
             println!("Product found in Redis: {:?}", product);
             // Check if the SKU matches
-            if product.sku == sku {
+            if product.sku == sku && !product.id.is_empty() {
                 return Some(product); // Found in Redis, return it
             }
             println!("SKU mismatch: expected {}, found {}", sku, product.sku);

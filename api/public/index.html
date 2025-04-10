@@ -600,11 +600,14 @@
 
       // Create a complete mapping object including attributes
       let completeMapping = { ...fieldMapping };
+      console.log("attribute field sent", attributeMappings)
       
       // Add attributes if any exist
       if (Object.keys(attributeMappings).length > 0) {
         completeMapping.attributes = attributeMappings;
       }
+
+      console.log("wordpress field mapping", completeMapping)
 
       let data = { 
         startRow, 

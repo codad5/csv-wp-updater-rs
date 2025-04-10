@@ -13,7 +13,6 @@ pub fn get_upload_path(file: &str) -> PathBuf {
     }
 
     let folder_path = folder_path.join("upload/csv");
-    println!("Folder path: {:?}", folder_path);
 
     // Ensure the folder exists before using it
     if !folder_path.exists() {
@@ -28,10 +27,6 @@ pub fn get_upload_path(file: &str) -> PathBuf {
     for path in paths {
         println!("Name: {:?}", path.unwrap().path());
     }
-    if path.exists() {
-        println!("file exist {:?}", path);
-        println!("is file {:?}", path.is_file());
-    }
     path
 }
 
@@ -39,8 +34,6 @@ pub fn get_upload_path(file: &str) -> PathBuf {
 pub fn get_csv_image_process_path(file: &str) -> PathBuf {
     let base_path = std::env::var("SHARED_STORAGE_PATH").unwrap();
     let folder_path = Path::new(&base_path).join("csv_image_process");
-
-    println!("Folder path: {:?}", folder_path);
 
     // Ensure the folder exists before using it
     if !folder_path.exists() {
