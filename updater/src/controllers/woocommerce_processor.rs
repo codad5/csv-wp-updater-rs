@@ -438,7 +438,13 @@ fn group_products_by_parent(
     
     // Process each record once - O(n) single pass
     for record_result in records {
-        let record = record_result?;
+        let record = match record_result {
+            Ok(record) => record,
+            Err(e) => {
+                println!("Error processing record: {:?}", e);
+                continue;
+            }
+        };
         
         // Create a HashMap from the record using the provided approach
         let row_map: HashMap<String, String> = headers
