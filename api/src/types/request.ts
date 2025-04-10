@@ -48,4 +48,5 @@ export interface WordPressFieldMapping {
     purchase_note?: string;
     menu_order?: string;
     brand_ids?: string;
+    
 }
