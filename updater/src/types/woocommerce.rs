@@ -503,7 +503,7 @@ pub fn  woo_product_builder(
         type_ = "variation".to_string();
     } else {
         // check if type is in array of simple, grouped, external and variable
-        if !["simple", "grouped", "external", "variable", "variation"].contains(&type_.as_str()) {
+        if !["simple", "grouped", "external", "variable", "variation"].contains(&type_.to_lowercase().as_str()) {
             type_  =  String::new(); // set to empty string if not valid
         } 
     }
