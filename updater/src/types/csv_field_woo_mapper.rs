@@ -46,9 +46,15 @@ pub struct WordPressFieldMapping {
     pub purchase_note: Option<String>,
     pub menu_order: Option<String>,
     pub brand_ids: Option<String>,
-    // Added new attribute field as a HashMap
+    // Updated attribute field with the new structure
     #[serde(default)]
-    pub attributes: HashMap<String, String>,
+    pub attributes: HashMap<String, AttributeMapping>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct AttributeMapping {
+    pub column: String,
+    pub variable: bool,
 }
 
 pub fn default_priority() -> u8 {
@@ -155,7 +161,7 @@ impl WordPressFieldMapping {
         
         // For attributes, convert each key/value pair to "attribute_{key}" for consistent access
         for (key, value) in &self.attributes {
-            map.insert(format!("attribute_{}", key), Some(value.clone()));
+            map.insert(format!("attribute_{}", key), Some(value.clone().column));
         }
         
         map
@@ -167,7 +173,7 @@ impl WordPressFieldMapping {
         if property_name.starts_with("attribute_") {
             // Extract the attribute name from the property_name
             let attr_name = property_name.strip_prefix("attribute_").unwrap();
-            return self.attributes.get(attr_name);
+            return self.attributes.get(attr_name).map(|attr| &attr.column)
         }
         
         // Regular fields
@@ -267,7 +273,7 @@ impl WordPressFieldMapping {
         
         // Add all attributes with attribute_ prefix
         for (key, val) in &self.attributes {
-            map.insert(format!("attribute_{}", key), val.clone());
+            map.insert(format!("attribute_{}", key), val.clone().column);
         }
         
         map
@@ -327,27 +333,27 @@ impl WordPressFieldMapping {
     }
     
     /// Helper method to add a new attribute
-    pub fn add_attribute(&mut self, key: String, value: String) {
+    pub fn add_attribute(&mut self, key: String, value: AttributeMapping) {
         self.attributes.insert(key, value);
     }
     
     /// Helper method to get an attribute by name
-    pub fn get_attribute(&self, key: &str) -> Option<&String> {
+    pub fn get_attribute(&self, key: &str) -> Option<&AttributeMapping> {
         self.attributes.get(key)
     }
     
     /// Helper method to remove an attribute
-    pub fn remove_attribute(&mut self, key: &str) -> Option<String> {
+    pub fn remove_attribute(&mut self, key: &str) -> Option<AttributeMapping> {
         self.attributes.remove(key)
     }
     
     /// Helper method to get all attributes
-    pub fn get_all_attributes(&self) -> &HashMap<String, String> {
+    pub fn get_all_attributes(&self) -> &HashMap<String, AttributeMapping> {
         &self.attributes
     }
 
-    pub fn get_inverted_attribute(&self) -> HashMap<String, String> {
-        let inverted: HashMap<String, String> = self.attributes
+    pub fn get_inverted_attribute(&self) -> HashMap<String, AttributeMapping> {
+        let inverted: HashMap<String, AttributeMapping> = self.attributes
         .iter()
         .map(|(k, v)| (v.clone(), k.clone()))
         .collect();

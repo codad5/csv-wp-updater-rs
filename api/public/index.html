@@ -154,6 +154,14 @@
       flex: 1;
       margin-right: 10px;
     }
+    .attribute-checkbox-container {
+      display: flex;
+      align-items: center;
+      margin-right: 10px;
+    }
+    .attribute-checkbox-container input[type="checkbox"] {
+      margin-right: 5px;
+    }
     .remove-attribute {
       background: #dc3545;
       padding: 6px 12px;
@@ -208,7 +216,7 @@
       <!-- Product Attributes Section -->
       <div class="attributes-section">
         <h3>Product Attributes</h3>
-        <p>Map CSV columns to product attributes.</p>
+        <p>Map CSV columns to product attributes. Check "Variable" for attributes used in variations.</p>
         <div id="attribute-mappings"></div>
         <button class="add-attribute-btn" onclick="addAttributeMapping()">Add Attribute</button>
       </div>
@@ -462,6 +470,23 @@
         updateAttributeMappings();
       });
       
+      // Variable checkbox
+      const checkboxContainer = $('<div>')
+        .addClass('attribute-checkbox-container');
+      
+      const variableCheckbox = $('<input>')
+        .attr('type', 'checkbox')
+        .attr('id', `attribute-variable-${attributeId}`)
+        .on('change', function() {
+          updateAttributeMappings();
+        });
+      
+      const checkboxLabel = $('<label>')
+        .attr('for', `attribute-variable-${attributeId}`)
+        .text('Variable');
+      
+      checkboxContainer.append(variableCheckbox, checkboxLabel);
+      
       // Remove button
       const removeBtn = $('<button>')
         .addClass('remove-attribute')
@@ -472,7 +497,7 @@
           updateAttributeMappings();
         });
       
-      row.append(nameInput, columnSelect, removeBtn);
+      row.append(nameInput, columnSelect, checkboxContainer, removeBtn);
       container.append(row);
     }
 
@@ -483,9 +508,13 @@
         const id = $(this).attr('id').replace('attribute-row-', '');
         const name = $(`#attribute-name-${id}`).val();
         const column = $(`#attribute-column-${id}`).val();
+        const isVariable = $(`#attribute-variable-${id}`).is(':checked');
         
         if (name && column) {
-          attributeMappings[name] = column;
+          attributeMappings[name] = {
+            column: column,
+            variable: isVariable
+          };
         }
       });
       

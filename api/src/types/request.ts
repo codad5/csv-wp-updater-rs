@@ -49,7 +49,10 @@ export interface WordPressFieldMapping {
     menu_order?: string;
     brand_ids?: string;
     attributes?: {
-        [key: string]: string;
+        [key: string]: {
+            column: string, 
+            variable:boolean
+        };
     }
 
 }
