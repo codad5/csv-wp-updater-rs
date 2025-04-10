@@ -611,7 +611,7 @@ fn group_products_by_parent(
           .await?;
 
       let body = res.text().await?; // Get response as a string
-      
+      println!("\x1b[38;5;226mResponse body (bright yellow): {}\x1b[0m", body);
       let products: Vec<WooCommerceProduct> = serde_json::from_str(&body)?; // Parse JSON manually
       println!("Response body from with sku: {}, fetch_product_by_sku: {:?}", sku , products);
 
@@ -646,6 +646,7 @@ async fn fetch_product_variation_by_sku(
           .await?;
 
       let body = res.text().await?; // Get response as a string
+      println!("\x1b[38;5;200mResponse body (pinkish): {}\x1b[0m", body);
       
       let products: Vec<ProductVariation> = serde_json::from_str(&body)?; // Parse JSON manually
       println!("Response body from with sku: {}, fetch_product_variation_by_sku: {:?}", sku , products);
@@ -729,7 +730,7 @@ async fn fetch_product_variation_by_sku(
                 return Some(product); // Found in WooCommerce, return it
             }
             Err(e) => {
-                println!("WooCommerce error: {:?}", e);
+                println!("WooCommerce error(variation): {:?}", e);
                 return None // Product not found or API error
             }
         }
