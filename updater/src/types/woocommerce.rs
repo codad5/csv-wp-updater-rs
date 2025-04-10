@@ -44,7 +44,7 @@ pub struct WooCommerceProduct {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     categories: Vec<Category>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    tags: Vec<String>,
+    tags: Vec<Category>,
     
     // Images
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -511,6 +511,16 @@ pub fn  woo_product_builder(
       // Handle categories
       println!("categories {:?}",  get_value("category_ids"));
       let categories: Vec<Category> = get_value("category_ids")
+          .split('|')
+          .filter(|c| !c.trim().is_empty())
+          .map(|cat| Category {
+              id: cat.trim().parse().ok(),
+              name: cat.trim().to_string(),
+              slug: cat.trim().to_lowercase().replace(' ', "-"),
+          })
+          .collect();
+
+        let tags: Vec<Category> = get_value("tag_ids")
           .split('|')
           .filter(|c| !c.trim().is_empty())
           .map(|cat| Category {
