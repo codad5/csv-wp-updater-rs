@@ -46,6 +46,9 @@ pub struct WordPressFieldMapping {
     pub purchase_note: Option<String>,
     pub menu_order: Option<String>,
     pub brand_ids: Option<String>,
+    // Added new attribute field as a HashMap
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 pub fn default_priority() -> u8 {
@@ -96,6 +99,8 @@ pub fn default_wordpress_field_mapping() -> WordPressFieldMapping {
         purchase_note: None,
         menu_order: None,
         brand_ids: Some("Product Attribute: Brand".to_string()),
+        // Initialize the new attributes HashMap as empty
+        attributes: HashMap::new(),
     }
 }
 
@@ -148,11 +153,24 @@ impl WordPressFieldMapping {
         map.insert("menu_order".to_string(), self.menu_order.clone());
         map.insert("brand_ids".to_string(), self.brand_ids.clone());
         
+        // For attributes, convert each key/value pair to "attribute_{key}" for consistent access
+        for (key, value) in &self.attributes {
+            map.insert(format!("attribute_{}", key), Some(value.clone()));
+        }
+        
         map
     }
     
     /// Get a field mapping value by property name
     pub fn get_field(&self, property_name: &str) -> Option<&String> {
+        // Check if it's an attribute request
+        if property_name.starts_with("attribute_") {
+            // Extract the attribute name from the property_name
+            let attr_name = property_name.strip_prefix("attribute_").unwrap();
+            return self.attributes.get(attr_name);
+        }
+        
+        // Regular fields
         match property_name {
             "id" => self.id.as_ref(),
             "type" => self.type_.as_ref(),
@@ -247,6 +265,11 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.menu_order { map.insert("menu_order".to_string(), val.clone()); }
         if let Some(val) = &self.brand_ids { map.insert("brand_ids".to_string(), val.clone()); }
         
+        // Add all attributes with attribute_ prefix
+        for (key, val) in &self.attributes {
+            map.insert(format!("attribute_{}", key), val.clone());
+        }
+        
         map
     }
     
@@ -297,6 +320,40 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.menu_order { map.insert(val.clone(), "menu_order".to_string()); }
         if let Some(val) = &self.brand_ids { map.insert(val.clone(), "brand_ids".to_string()); }
         
+        // Note: We don't include attributes in the reverse mapping as they're dynamic
+        // and not part of the fixed struct fields
+        
         map
     }
+    
+    /// Helper method to add a new attribute
+    pub fn add_attribute(&mut self, key: String, value: String) {
+        self.attributes.insert(key, value);
+    }
+    
+    /// Helper method to get an attribute by name
+    pub fn get_attribute(&self, key: &str) -> Option<&String> {
+        self.attributes.get(key)
+    }
+    
+    /// Helper method to remove an attribute
+    pub fn remove_attribute(&mut self, key: &str) -> Option<String> {
+        self.attributes.remove(key)
+    }
+    
+    /// Helper method to get all attributes
+    pub fn get_all_attributes(&self) -> &HashMap<String, String> {
+        &self.attributes
+    }
+
+    pub fn get_inverted_attribute(&self) -> HashMap<String, String> {
+        let inverted: HashMap<String, String> = self.attributes
+        .iter()
+        .map(|(k, v)| (v.clone(), k.clone()))
+        .collect();
+
+        return inverted;
+    }
+
+
 }

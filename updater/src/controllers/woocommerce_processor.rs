@@ -112,6 +112,13 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
             (clean_key, v.clone())
         })
         .collect();
+    let reverse_attribute_mapping = field_mapping.get_inverted_attribute();
+    let reverse_attribute_mapping: HashMap<String, String> = reverse_attribute_mapping.iter()
+        .map(|(k, v)| {
+            let clean_key = clean_string(k);
+            (clean_key, v.clone())
+        })
+        .collect();
 
     println!("Processing records...");
     
@@ -136,7 +143,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     // vec![(parent, all_child)]
     // vec![(WooCommerceProduct, Vec<WooCommerceProduct>)]
 
-    let grouped_products = Self::group_products_by_parent(record_vec, &headers, &reverse_mapping)?;
+    let grouped_products = Self::group_products_by_parent(record_vec, &headers, &reverse_mapping, &reverse_attribute_mapping)?;
     println!("Number of parents/main products: {}", grouped_products.len());
     let mut parent_futures = Vec::new();
     for (parent, children) in grouped_products {
@@ -419,6 +426,7 @@ fn group_products_by_parent(
     records: Vec<Result<csv::StringRecord, csv::Error>>,
     headers: &csv::StringRecord,
     reverse_mapping: &HashMap<String, String>,
+    attribute_reverse: &HashMap<String, String>
 ) -> Result<Vec<(WooCommerceProduct, Vec<ProductVariation>)>, Box<dyn std::error::Error + Send + Sync>> {
     // HashMap to store parent SKU/ID -> vector of children
     let mut parent_children_map: std::collections::HashMap<String, Vec<ProductVariation>> = std::collections::HashMap::new();
@@ -436,9 +444,15 @@ fn group_products_by_parent(
             .zip(record.iter())
             .map(|(h, v)| (reverse_mapping.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
             .collect();
+
+        let attribute_row_map: HashMap<String, String> = headers
+            .iter()
+            .zip(record.iter())
+            .map(|(h, v)| (attribute_reverse.get(h).unwrap_or(&"".to_string()).to_lowercase(), v.to_string()))
+            .collect();
         
         // Build product from row_map using the new woo_build_product function
-        match woo_build_product(&row_map) {
+        match woo_build_product(&row_map, &attribute_row_map) {
             Some(WooProduct::Product(product)) => {
                 // This is a parent or standalone product
                 // Add to parent products vector

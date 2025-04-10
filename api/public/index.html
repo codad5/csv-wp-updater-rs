@@ -137,6 +137,34 @@
       color: white;
       opacity: 1;
     }
+    .attributes-section {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #eee;
+    }
+    .attribute-row {
+      display: flex;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+    .attribute-row input, 
+    .attribute-row select {
+      flex: 1;
+      margin-right: 10px;
+    }
+    .remove-attribute {
+      background: #dc3545;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+    .remove-attribute:hover {
+      background: #bb2d3b;
+    }
+    .add-attribute-btn {
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
@@ -176,6 +204,15 @@
           </tbody>
         </table>
       </div>
+      
+      <!-- Product Attributes Section -->
+      <div class="attributes-section">
+        <h3>Product Attributes</h3>
+        <p>Map CSV columns to product attributes.</p>
+        <div id="attribute-mappings"></div>
+        <button class="add-attribute-btn" onclick="addAttributeMapping()">Add Attribute</button>
+      </div>
+      
       <br>
       <button onclick="goBack()">Back</button>
       <button onclick="continueToProcessing()">Continue to Processing</button>
@@ -225,6 +262,8 @@
     let timerInterval = null;
     let startTime = null;
     let fieldMapping = {};
+    let attributeMappings = {};
+    let attributeCounter = 0;
 
     // WooCommerce fields from the provided HTML
     const woocommerceFields = [
@@ -236,8 +275,8 @@
       { value: "published", label: "Published" },
       { value: "featured", label: "Is featured?" },
       { value: "catalog_visibility", label: "Visibility in catalog" },
-      { value: "short_description", label: "Short description" },
       { value: "description", label: "Description" },
+      { value: "short_description", label: "Short description" },
       { value: "regular_price", label: "Regular price" },
       { value: "sale_price", label: "Sale price" },
       { value: "date_on_sale_from", label: "Date sale price starts" },
@@ -269,7 +308,6 @@
       { value: "reviews_allowed", label: "Allow customer reviews?" },
       { value: "purchase_note", label: "Purchase note" },
       { value: "menu_order", label: "Position" },
-      { value: "brand_ids", label: "Brands" }
     ];
 
     function uploadCSV() {
@@ -349,7 +387,6 @@
         select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
         
         // Add CSV columns as options
-        console.log(csvColumns);
         csvColumns.forEach(column => {
           const option = $('<option>').attr('value', column).text(column);
           
@@ -376,6 +413,83 @@
       
       // Initialize mapping object
       updateFieldMapping();
+      
+      // Reset attribute mappings
+      $('#attribute-mappings').empty();
+      attributeMappings = {};
+      attributeCounter = 0;
+    }
+
+    function createColumnSelect(id, onChangeHandler) {
+      const select = $('<select>')
+        .attr('id', id)
+        .addClass('attribute-column-select');
+        
+      // Add empty option
+      select.append($('<option>').attr('value', '').text('Select CSV column'));
+      
+      // Add CSV columns as options
+      csvColumns.forEach(column => {
+        select.append($('<option>').attr('value', column).text(column));
+      });
+      
+      if (onChangeHandler) {
+        select.on('change', onChangeHandler);
+      }
+      
+      return select;
+    }
+
+    function addAttributeMapping() {
+      const attributeId = attributeCounter++;
+      const container = $('#attribute-mappings');
+      
+      const row = $('<div>')
+        .addClass('attribute-row')
+        .attr('id', `attribute-row-${attributeId}`);
+      
+      // Input for attribute name
+      const nameInput = $('<input>')
+        .attr('type', 'text')
+        .attr('placeholder', 'Attribute Name (e.g. Color)')
+        .attr('id', `attribute-name-${attributeId}`)
+        .on('input', function() {
+          updateAttributeMappings();
+        });
+      
+      // Select for CSV column
+      const columnSelect = createColumnSelect(`attribute-column-${attributeId}`, function() {
+        updateAttributeMappings();
+      });
+      
+      // Remove button
+      const removeBtn = $('<button>')
+        .addClass('remove-attribute')
+        .text('×')
+        .on('click', function() {
+          $(`#attribute-row-${attributeId}`).remove();
+          delete attributeMappings[attributeId];
+          updateAttributeMappings();
+        });
+      
+      row.append(nameInput, columnSelect, removeBtn);
+      container.append(row);
+    }
+
+    function updateAttributeMappings() {
+      attributeMappings = {};
+      
+      $('.attribute-row').each(function() {
+        const id = $(this).attr('id').replace('attribute-row-', '');
+        const name = $(`#attribute-name-${id}`).val();
+        const column = $(`#attribute-column-${id}`).val();
+        
+        if (name && column) {
+          attributeMappings[name] = column;
+        }
+      });
+      
+      console.log('Attribute mappings updated:', attributeMappings);
     }
 
     function updateFieldMapping() {
@@ -455,11 +569,19 @@
       let rowCount = parseInt($('#rowCount').val()) || 99999;
       let priority = parseInt($('#priority').val()) || 1;
 
+      // Create a complete mapping object including attributes
+      let completeMapping = { ...fieldMapping };
+      
+      // Add attributes if any exist
+      if (Object.keys(attributeMappings).length > 0) {
+        completeMapping.attributes = attributeMappings;
+      }
+
       let data = { 
         startRow, 
         rowCount, 
         priority,
-        wordpress_field_mapping: fieldMapping
+        wordpress_field_mapping: completeMapping
       };
 
       $.ajax({

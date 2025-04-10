@@ -446,19 +446,20 @@ pub enum WooProduct {
     Variation(ProductVariation),
 }
 
-pub fn woo_build_product(product: &HashMap<String, String>) -> Option<WooProduct> {
+pub fn woo_build_product(product: &HashMap<String, String>, attribute: &HashMap<String, String>) -> Option<WooProduct> {
     let binding = "".to_string();
     let parent = product.get("parent_id").unwrap_or(&binding).trim();
+    let sku = product.get("sku").unwrap_or(&binding).trim();
     
-    if parent.is_empty() {
+    if parent.is_empty() || parent  == sku {
         // Build a main product
-        match woo_product_builder(product) {
+        match woo_product_builder(product, attribute) {
             Ok(product) => Some(WooProduct::Product(product)),
             Err(_) => None,
         }
     } else {
         // Build a variation
-        match woo_product_variation_builder(product) {
+        match woo_product_variation_builder(product, attribute) {
             Ok(variation) => Some(WooProduct::Variation(variation)),
             Err(_) => None,
         }
@@ -470,6 +471,7 @@ pub fn woo_build_product(product: &HashMap<String, String>) -> Option<WooProduct
 
 pub fn woo_product_builder(
     product: &HashMap<String, String>,
+    attribute_map: &HashMap<String, String>
 ) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
       
     let get_value = |key: &str| -> String {
@@ -540,6 +542,7 @@ pub fn woo_product_builder(
       let material = get_value("material");
       let brand = get_value("brand");
       let mut attributes = vec![];
+        
       
       if !material.is_empty() {
           attributes.push(ProductAttribute {
@@ -563,6 +566,20 @@ pub fn woo_product_builder(
               options: vec![brand.to_string()],
           });
       }
+      for (key, value) in attribute_map.iter() {
+            if !value.is_empty() {
+                attributes.push(ProductAttribute {
+                    name: key.clone(),
+                    position: None,
+                    visible: Some(true),
+                    variation: Some(type_ != "simple"),
+                    options: value.split(',')
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .collect(),
+                });
+            }
+        }
 
       // Handle stock quantity
       let stock_quantity = get_value("stock_quantity").parse().ok();
@@ -608,6 +625,7 @@ pub fn woo_product_builder(
 
 pub fn woo_product_variation_builder(
     product: &HashMap<String, String>,
+    attribute_map: &HashMap<String, String>,
 ) -> Result<ProductVariation, Box<dyn std::error::Error + Send + Sync>> {
     let get_value = |key: &str| -> String {
         product.get(key).unwrap_or(&"".to_string()).trim().to_string()
@@ -625,33 +643,42 @@ pub fn woo_product_variation_builder(
     
     // Look for variation attributes in the product hashmap
     // This assumes that variation attributes are stored with keys like "attribute_color", "attribute_size", etc.
-    for (key, value) in product.iter() {
-        if key.starts_with("attribute_") && !value.is_empty() {
-            let attr_name = key.trim_start_matches("attribute_").to_string();
-            attributes.push(VariationAttribute {
-                name: attr_name,
-                option: value.clone(),
-            });
-        }
-    }
+    // for (key, value) in product.iter() {
+    //     if key.starts_with("attribute_") && !value.is_empty() {
+    //         let attr_name = key.trim_start_matches("attribute_").to_string();
+    //         attributes.push(VariationAttribute {
+    //             name: attr_name,
+    //             option: value.clone(),
+    //         });
+    //     }
+    // }
     
     // Handle specific variation attributes if they don't follow the standard pattern
     let color = get_value("color");
     let size = get_value("size");
     
-    if !color.is_empty() && !attributes.iter().any(|a| a.name == "Color") {
-        attributes.push(VariationAttribute {
-            name: "Color".to_string(),
-            option: color,
-        });
-    }
+    // if !color.is_empty() && !attributes.iter().any(|a| a.name == "Color") {
+    //     attributes.push(VariationAttribute {
+    //         name: "Color".to_string(),
+    //         option: color,
+    //     });
+    // }
     
-    if !size.is_empty() && !attributes.iter().any(|a| a.name == "Size") {
-        attributes.push(VariationAttribute {
-            name: "Size".to_string(),
-            option: size,
-        });
-    }
+    // if !size.is_empty() && !attributes.iter().any(|a| a.name == "Size") {
+    //     attributes.push(VariationAttribute {
+    //         name: "Size".to_string(),
+    //         option: size,
+    //     });
+    // }
+
+    for (key, value) in attribute_map.iter() {
+            if !value.is_empty() {
+                attributes.push(VariationAttribute {
+                    name: key.clone(),
+                    option: value.to_owned()
+                });
+            }
+        }
     
     // Handle stock quantity and status
     let stock_quantity = get_value("stock_quantity").parse().ok();
