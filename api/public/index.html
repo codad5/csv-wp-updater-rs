@@ -264,7 +264,6 @@
   </div>
 
   <script>
-    <!--
     /**
      * @type {string} 
      * @description ID of the uploaded file.
@@ -457,23 +456,17 @@
           // Add separator
           select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
         }
-
-        let bestMatch = null;
-        let closestMatch = findClosestMatch(field.value, csvColumns)
         
         // Add CSV columns as options
         csvColumns.forEach(column => {
           const option = $('<option>').attr('value', column).text(column);
           
           // Try to smartly match columns (e.g., if CSV has "product_sku" and field is "sku")
-          if (column.toLowerCase() === field.value.toLowerCase() || column.toLowerCase().startsWith(field.value.toLowerCase())) {
-            option.prop('selected', true);
-          } 
-          else if (column.toLowerCase() === closestMatch && closestMatch.toLowerCase().includes(column.toLowerCase())) {
-            option.prop('selected', true);
-          }
-          // Column name is contained in field name, lowest priority match
-          else if (field.value.toLowerCase().includes(column.toLowerCase()) || column.toLowerCase().includes(field.value.toLowerCase())) {
+          if (
+            column.toLowerCase() === field.value.toLowerCase() ||
+            column.toLowerCase().includes(field.value.toLowerCase()) ||
+            field.value.toLowerCase().includes(column.toLowerCase())
+          ) {
             option.prop('selected', true);
           }
           
@@ -800,58 +793,6 @@
           stopTimer(); // Stop the timer on error
         });
       }, 2000);
-    }
-
-    // Add this function to calculate Levenshtein distance
-    function levenshteinDistance(a, b) {
-      const matrix = [];
-
-      // Increment along the first column of each row
-      for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-      }
-
-      // Increment each column in the first row
-      for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-      }
-
-      // Fill in the rest of the matrix
-      for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-          if (b.charAt(i-1) === a.charAt(j-1)) {
-            matrix[i][j] = matrix[i-1][j-1];
-          } else {
-            matrix[i][j] = Math.min(
-              matrix[i-1][j-1] + 1, // substitution
-              matrix[i][j-1] + 1,   // insertion
-              matrix[i-1][j] + 1    // deletion
-            );
-          }
-        }
-      }
-
-      return matrix[b.length][a.length];
-    }
-
-    // Function to find the closest match using Levenshtein distance
-    function findClosestMatch(target, candidates) {
-      let closestMatch = null;
-      let lowestDistance = Infinity;
-      
-      candidates.forEach(candidate => {
-        // Calculate normalized distance (to account for string length)
-        const distance = levenshteinDistance(target.toLowerCase(), candidate.toLowerCase());
-        const normalizedDistance = distance / Math.max(target.length, candidate.length);
-        
-        if (normalizedDistance < lowestDistance) {
-          lowestDistance = normalizedDistance;
-          closestMatch = candidate;
-        }
-      });
-      
-      // Only return a match if it's reasonably close (adjust threshold as needed)
-      return lowestDistance < 0.2 ? closestMatch : null;
     }
 
     // Initialize by showing the upload section first
