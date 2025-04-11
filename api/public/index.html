@@ -275,48 +275,49 @@
 
     // WooCommerce fields from the provided HTML
     const woocommerceFields = [
-      { value: "id", label: "ID" },
-      { value: "type", label: "Type" },
-      { value: "sku", label: "SKU" },
-      { value: "global_unique_id", label: "GTIN, UPC, EAN, or ISBN" },
-      { value: "name", label: "Name" },
-      { value: "published", label: "Published" },
-      { value: "featured", label: "Is featured?" },
-      { value: "catalog_visibility", label: "Visibility in catalog" },
-      { value: "description", label: "Description" },
-      { value: "short_description", label: "Short description" },
-      { value: "regular_price", label: "Regular price" },
-      { value: "sale_price", label: "Sale price" },
-      { value: "date_on_sale_from", label: "Date sale price starts" },
-      { value: "date_on_sale_to", label: "Date sale price ends" },
-      { value: "tax_status", label: "Tax status" },
-      { value: "tax_class", label: "Tax class" },
-      { value: "stock_status", label: "In stock?" },
-      { value: "stock_quantity", label: "Stock" },
-      { value: "backorders", label: "Backorders allowed?" },
-      { value: "low_stock_amount", label: "Low stock amount" },
-      { value: "sold_individually", label: "Sold individually?" },
-      { value: "weight", label: "Weight (kg)" },
-      { value: "length", label: "Length (cm)" },
-      { value: "width", label: "Width (cm)" },
-      { value: "height", label: "Height (cm)" },
-      { value: "category_ids", label: "Categories" },
-      { value: "tag_ids", label: "Tags (comma separated)" },
-      { value: "tag_ids_spaces", label: "Tags (space separated)" },
-      { value: "shipping_class_id", label: "Shipping class" },
-      { value: "images", label: "Images" },
-      { value: "parent_id", label: "Parent" },
-      { value: "upsell_ids", label: "Upsells" },
-      { value: "cross_sell_ids", label: "Cross-sells" },
-      { value: "grouped_products", label: "Grouped products" },
-      { value: "product_url", label: "External URL" },
-      { value: "button_text", label: "Button text" },
-      { value: "download_limit", label: "Download limit" },
-      { value: "download_expiry", label: "Download expiry days" },
-      { value: "reviews_allowed", label: "Allow customer reviews?" },
-      { value: "purchase_note", label: "Purchase note" },
-      { value: "menu_order", label: "Position" },
+      { value: "id", label: "ID", required: false, description: "Unique product ID (auto-generated if empty)" },
+      { value: "type", label: "Type", required: true, description: "Product type (simple, variable, grouped, external)" },
+      { value: "sku", label: "SKU", required: true, description: "Unique SKU of product" },
+      { value: "parent_id", label: "Parent", required: true, description: "Parent product SKU (for variations)" },
+      { value: "global_unique_id", label: "GTIN, UPC, EAN, or ISBN", required: false, description: "Global product identifier" },
+      { value: "name", label: "Name", required: true, description: "Product name/title" },
+      { value: "published", label: "Published", required: false, description: "Product visibility status (yes/no)" },
+      { value: "featured", label: "Is featured?", required: false, description: "Display product as featured (yes/no)" },
+      { value: "catalog_visibility", label: "Visibility in catalog", required: false, description: "Controls where product appears (visible, catalog, search, hidden)" },
+      { value: "description", label: "Description", required: false, description: "Full product description" },
+      { value: "short_description", label: "Short description", required: false, description: "Brief product summary shown in listings" },
+      { value: "regular_price", label: "Regular price", required: false, description: "Main product price" },
+      { value: "sale_price", label: "Sale price", required: false, description: "Discounted price (if on sale)" },
+      { value: "date_on_sale_from", label: "Date sale price starts", required: false, description: "Sale start date (YYYY-MM-DD)" },
+      { value: "date_on_sale_to", label: "Date sale price ends", required: false, description: "Sale end date (YYYY-MM-DD)" },
+      { value: "tax_status", label: "Tax status", required: false, description: "Product tax status (taxable, shipping, none)" },
+      { value: "tax_class", label: "Tax class", required: false, description: "Tax classification" },
+      { value: "stock_status", label: "In stock?", required: false, description: "Stock status (instock, outofstock, onbackorder)" },
+      { value: "stock_quantity", label: "Stock", required: false, description: "Available inventory quantity" },
+      { value: "backorders", label: "Backorders allowed?", required: false, description: "Allow backorders (yes, no, notify)" },
+      { value: "low_stock_amount", label: "Low stock amount", required: false, description: "Threshold for low stock alerts" },
+      { value: "sold_individually", label: "Sold individually?", required: false, description: "Limit to one per order (yes/no)" },
+      { value: "weight", label: "Weight (kg)", required: false, description: "Product weight in kilograms" },
+      { value: "length", label: "Length (cm)", required: false, description: "Product length in centimeters" },
+      { value: "width", label: "Width (cm)", required: false, description: "Product width in centimeters" },
+      { value: "height", label: "Height (cm)", required: false, description: "Product height in centimeters" },
+      { value: "category_ids", label: "Categories", required: false, description: "Product categories (comma separated IDs or names)" },
+      { value: "tag_ids", label: "Tags (comma separated)", required: false, description: "Product tags separated by commas" },
+      { value: "tag_ids_spaces", label: "Tags (space separated)", required: false, description: "Product tags separated by spaces" },
+      { value: "shipping_class_id", label: "Shipping class", required: false, description: "Shipping class ID or name" },
+      { value: "images", label: "Images", required: false, description: "Product images (URLs, separated by pipe |)" },
+      { value: "upsell_ids", label: "Upsells", required: false, description: "Upsell product IDs (comma separated)" },
+      { value: "cross_sell_ids", label: "Cross-sells", required: false, description: "Cross-sell product IDs (comma separated)" },
+      { value: "grouped_products", label: "Grouped products", required: false, description: "Grouped product IDs (comma separated)" },
+      { value: "product_url", label: "External URL", required: false, description: "URL for external products" },
+      { value: "button_text", label: "Button text", required: false, description: "Button text for external products" },
+      { value: "download_limit", label: "Download limit", required: false, description: "Download limit for downloadable products" },
+      { value: "download_expiry", label: "Download expiry days", required: false, description: "Days until download expires" },
+      { value: "reviews_allowed", label: "Allow customer reviews?", required: false, description: "Enable customer reviews (yes/no)" },
+      { value: "purchase_note", label: "Purchase note", required: false, description: "Note shown after purchase" },
+      { value: "menu_order", label: "Position", required: false, description: "Product sorting position" },
     ];
+
 
     function uploadCSV() {
       const fileInput = $('#csvUpload')[0].files[0];
@@ -372,7 +373,7 @@
       });
     }
 
-    function createMappingFields() {
+   function createMappingFields() {
       const mappingContainer = $('#mapping-fields');
       mappingContainer.empty();
       
@@ -380,7 +381,27 @@
       woocommerceFields.forEach(field => {
         const row = $('<tr>');
         
-        const fieldNameCell = $('<td>').text(field.label);
+        // Create field name cell with description tooltip
+        const fieldNameCell = $('<td>');
+        fieldNameCell.append($('<strong>').text(field.label));
+        
+        // Add required indicator if field is required
+        if (field.required) {
+          fieldNameCell.append(' <span style="color: #dc3545;">*</span>');
+        }
+        
+        // Add description as helper text
+        if (field.description) {
+          fieldNameCell.append($('<div>')
+            .addClass('field-description')
+            .css({
+              'font-size': '12px',
+              'color': '#666',
+              'margin-top': '3px'
+            })
+            .text(field.description));
+        }
+        
         const mappingCell = $('<td>');
         
         const select = $('<select>')
@@ -388,11 +409,14 @@
           .attr('data-field', field.value)
           .addClass('mapping-select');
         
-        // Add empty option
-        select.append($('<option>').attr('value', '').text('Do not import'));
-        
-        // Add separator
-        select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
+        // Only add "Do not import" option for non-required fields
+        if (!field.required) {
+          // Add empty option
+          select.append($('<option>').attr('value', '').text('Do not import'));
+          
+          // Add separator
+          select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
+        }
         
         // Add CSV columns as options
         csvColumns.forEach(column => {
@@ -410,7 +434,21 @@
           select.append(option);
         });
         
+        // For required fields, if no match was found, select the first option
+        if (field.required && !select.val() && csvColumns.length > 0) {
+          select.val(csvColumns[0]);
+        }
+        
         select.on('change', function() {
+          // For required fields, prevent "Do not import" selection
+          if (field.required && !$(this).val()) {
+            alert(`The field "${field.label}" is required and must be mapped to a CSV column.`);
+            // Reset to first CSV column if available
+            if (csvColumns.length > 0) {
+              $(this).val(csvColumns[0]);
+            }
+          }
+          
           updateFieldMapping();
         });
         
@@ -574,9 +612,23 @@
     }
 
     function continueToProcessing() {
-      // Validate that at least some fields are mapped
+      // First check if any fields are mapped
       if (Object.keys(fieldMapping).length === 0) {
         alert('Please map at least one field before proceeding.');
+        return;
+      }
+      
+      // Check if all required fields are mapped
+      let missingRequiredFields = [];
+      
+      woocommerceFields.forEach(field => {
+        if (field.required && !fieldMapping[field.value]) {
+          missingRequiredFields.push(field.label);
+        }
+      });
+      
+      if (missingRequiredFields.length > 0) {
+        alert(`The following required fields must be mapped before proceeding:\n- ${missingRequiredFields.join('\n- ')}`);
         return;
       }
       
