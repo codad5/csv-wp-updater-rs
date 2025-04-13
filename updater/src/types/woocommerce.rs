@@ -109,8 +109,8 @@ pub struct ProductVariation {
     attributes: Vec<VariationAttribute>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stock_quantity: Option<i32>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    images: Vec<ProductImage>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    image: Option<ProductImage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stock_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -423,7 +423,7 @@ impl ProductVariation {
             shipping_class: merge_option(&self.shipping_class, &other.shipping_class),
             dimensions: merge_option(&self.dimensions, &other.dimensions),
             weight: merge_option(&self.weight, &other.weight),
-            images: merge_vec(&self.images, &other.images),
+            image: merge_option(&self.image, &other.image),
             stock_status: merge_option(&self.stock_status, &other.stock_status)
         }
     }
@@ -828,7 +828,7 @@ pub fn woo_product_variation_builder(
         weight: weight_option,
         shipping_class: shipping_class_option,
         dimensions,
-        images
+        image: images.first().cloned()
     })
 }
 
