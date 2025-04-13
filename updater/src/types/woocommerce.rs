@@ -110,7 +110,7 @@ pub struct ProductVariation {
     #[serde(skip_serializing_if = "Option::is_none")]
     stock_quantity: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    stock_status: Option<i32>,
+    stock_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     weight: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
