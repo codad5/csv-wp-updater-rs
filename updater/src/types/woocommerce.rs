@@ -647,7 +647,7 @@ pub fn  woo_product_builder(
           description,
           short_description,
           categories,
-          tags: vec![],
+          tags,
           images,
           variations: vec![], // You can implement variations if needed
           attributes,
