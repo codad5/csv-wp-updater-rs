@@ -521,7 +521,7 @@ fn group_products_by_parent(
                             },
                             None => {
                                 // If the parent doesn't have this attribute yet, create a new one
-                                let mut new_attr = ProductAttribute::new(child_attr.name.clone().as_str(), vec![child_attr.option.clone()]);
+                                let new_attr = ProductAttribute::new(child_attr.name.clone().as_str(), vec![child_attr.option.clone()]);
                                 
                                 parent.add_attribute(new_attr);
                             }
