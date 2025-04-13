@@ -503,7 +503,7 @@ fn group_products_by_parent(
             let children = parent_children_map
                 .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
-            let mut pa_attribute_binding = parent.get_attribute();
+            let pa_attribute_binding = parent.get_attribute_mut();
   
                 // For each child/variation
                 for child in &children {
@@ -523,7 +523,7 @@ fn group_products_by_parent(
                                 // If the parent doesn't have this attribute yet, create a new one
                                 let new_attr = ProductAttribute::new(child_attr.name.clone().as_str(), vec![child_attr.option.clone()]);
                                 
-                                parent.add_attribute(new_attr);
+                                pa_attribute_binding.push(new_attr);
                             }
                         }
                     }

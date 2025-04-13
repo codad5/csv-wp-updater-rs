@@ -360,6 +360,10 @@ impl WooCommerceProduct {
         self.attributes.clone()
     }
 
+    pub fn get_attribute_mut(&mut self) -> &mut Vec<ProductAttribute> {
+        &mut self.attributes
+    }
+
     pub fn add_attribute(&mut self, attribute: ProductAttribute) {
         self.attributes.push(attribute);
     }
