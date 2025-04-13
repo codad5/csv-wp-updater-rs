@@ -39,6 +39,8 @@ pub struct WooCommerceProduct {
     description: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     short_description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    weight: Option<String>,
     
     // Categorization
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -243,6 +245,7 @@ impl WooCommerceProduct {
             sale_price: merge_option(&self.sale_price, &other.sale_price),
             description: merge_string(&self.description, &other.description),
             short_description: merge_string(&self.short_description, &other.short_description),
+            weight: merge_option(&self.weight, &other.weight),
             parent: merge_string(&self.parent, &other.parent),
             // Categorization
             categories: merge_vec(&self.categories, &other.categories),
@@ -673,6 +676,12 @@ pub fn  woo_product_builder(
       } else {
           Some(shipping_class)
       };
+      let weight = get_value("weight");
+      let weight_option = if weight.is_empty() {
+            None
+        } else {
+            Some(weight)
+        };
       
       Ok(WooCommerceProduct {
           id,
@@ -685,6 +694,7 @@ pub fn  woo_product_builder(
           sale_price: sale_price_option,
           description,
           short_description,
+          weight:weight_option,
           categories,
           tags,
           images,
