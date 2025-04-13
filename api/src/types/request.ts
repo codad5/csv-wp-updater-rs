@@ -36,6 +36,7 @@ export interface WordPressFieldMapping {
     tag_ids_spaces?: string;
     shipping_class_id?: string;
     images?: string;
+    featured_image?: string;
     parent_id?: string;
     upsell_ids?: string;
     cross_sell_ids?: string;

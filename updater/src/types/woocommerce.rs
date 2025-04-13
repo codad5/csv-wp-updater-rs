@@ -540,9 +540,10 @@ pub fn  woo_product_builder(
           .collect();
 
       // Handle images
-      let featured_image = get_value("images");
-      let gallery_images: Vec<_> = if !featured_image.is_empty() {
-          featured_image.split('|')
+      let main_image = get_value("images");
+      let featured_image = get_value("featured_image");
+      let gallery_images: Vec<_> = if !main_image.is_empty() {
+          main_image.split('|')
               .filter(|img| !img.trim().is_empty())
               .collect()
       } else {

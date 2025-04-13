@@ -34,6 +34,7 @@ pub struct WordPressFieldMapping {
     pub tag_ids_spaces: Option<String>,
     pub shipping_class_id: Option<String>,
     pub images: Option<String>,
+    pub featured_image: Option<String>,
     pub parent_id: Option<String>,
     pub upsell_ids: Option<String>,
     pub cross_sell_ids: Option<String>,
@@ -102,6 +103,7 @@ pub fn default_wordpress_field_mapping() -> WordPressFieldMapping {
         tag_ids_spaces: None,
         shipping_class_id: Some("Shipping Class".to_string()),
         images: Some("Product Image Gallery".to_string()),
+        featured_image: Some("Featured Image".to_string()),
         parent_id: Some("Parent".to_string()),
         upsell_ids: None,
         cross_sell_ids: None,
@@ -155,6 +157,7 @@ impl WordPressFieldMapping {
         map.insert("tag_ids_spaces".to_string(), self.tag_ids_spaces.clone());
         map.insert("shipping_class_id".to_string(), self.shipping_class_id.clone());
         map.insert("images".to_string(), self.images.clone());
+        map.insert("featured_image".to_string(), self.featured_image.clone());
         map.insert("parent_id".to_string(), self.parent_id.clone());
         map.insert("upsell_ids".to_string(), self.upsell_ids.clone());
         map.insert("cross_sell_ids".to_string(), self.cross_sell_ids.clone());
@@ -217,6 +220,7 @@ impl WordPressFieldMapping {
             "tag_ids_spaces" => self.tag_ids_spaces.as_ref(),
             "shipping_class_id" => self.shipping_class_id.as_ref(),
             "images" => self.images.as_ref(),
+            "featured_image" => self.featured_image.as_ref(),
             "parent_id" => self.parent_id.as_ref(),
             "upsell_ids" => self.upsell_ids.as_ref(),
             "cross_sell_ids" => self.cross_sell_ids.as_ref(),
@@ -267,6 +271,7 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.tag_ids_spaces { map.insert("tag_ids_spaces".to_string(), val.clone()); }
         if let Some(val) = &self.shipping_class_id { map.insert("shipping_class_id".to_string(), val.clone()); }
         if let Some(val) = &self.images { map.insert("images".to_string(), val.clone()); }
+        if let Some(val) = &self.featured_image { map.insert("featured_image".to_string(), val.clone()); }
         if let Some(val) = &self.parent_id { map.insert("parent_id".to_string(), val.clone()); }
         if let Some(val) = &self.upsell_ids { map.insert("upsell_ids".to_string(), val.clone()); }
         if let Some(val) = &self.cross_sell_ids { map.insert("cross_sell_ids".to_string(), val.clone()); }
@@ -322,6 +327,7 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.tag_ids_spaces { map.insert(val.clone(), "tag_ids_spaces".to_string()); }
         if let Some(val) = &self.shipping_class_id { map.insert(val.clone(), "shipping_class_id".to_string()); }
         if let Some(val) = &self.images { map.insert(val.clone(), "images".to_string()); }
+        if let Some(val) = &self.featured_image { map.insert(val.clone(), "featured_image".to_string()); }
         if let Some(val) = &self.parent_id { map.insert(val.clone(), "parent_id".to_string()); }
         if let Some(val) = &self.upsell_ids { map.insert(val.clone(), "upsell_ids".to_string()); }
         if let Some(val) = &self.cross_sell_ids { map.insert(val.clone(), "cross_sell_ids".to_string()); }
