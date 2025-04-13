@@ -143,7 +143,7 @@ pub struct ProductImage {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProductAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
-  name: String,
+  pub name: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   position: Option<i32>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,16 +151,31 @@ pub struct ProductAttribute {
   #[serde(skip_serializing_if = "Option::is_none")]
   variation: Option<bool>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  options: Vec<String>,
+  pub options: Vec<String>,
+}
+
+impl ProductAttribute {
+    pub fn new(name:&str, options: Vec<String>) -> Self {
+        ProductAttribute {
+            name: name.to_owned(),
+            position: None,
+            visible: Some(true),
+            variation: Some(true),
+            options
+        }
+    }
+
+    
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct VariationAttribute {
   #[serde(skip_serializing_if = "String::is_empty")]
-  name: String,
+  pub name: String,
   #[serde(skip_serializing_if = "String::is_empty")]
-  option: String,
+  pub option: String,
 }
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProductDimension {
@@ -340,6 +355,16 @@ impl WooCommerceProduct {
     pub fn is_main_product(&self) -> bool {
         self.parent.is_empty()
     }
+
+    pub fn get_attribute(&self) -> Vec<ProductAttribute> {
+        self.attributes.clone()
+    }
+
+    pub fn add_attribute(&mut self, attribute: ProductAttribute) {
+        self.attributes.push(attribute);
+    }
+
+
 }
 
 
@@ -447,6 +472,10 @@ impl ProductVariation {
     // a method to check if main product or a variation 
     pub fn is_main_product(&self) -> bool {
         false
+    }
+    
+    pub fn get_attribute(&self) -> Vec<VariationAttribute> {
+        self.attributes.clone()
     }
 }
 

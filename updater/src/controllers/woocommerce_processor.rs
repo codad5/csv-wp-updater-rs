@@ -12,7 +12,7 @@ use crate::helper::clean_string;
 use crate::helper::file_helper::get_upload_path;
 use crate::libs::redis::{get_progress, FileProcessingManager};
 use crate::types::csv_field_woo_mapper::{AttributeMapping, WordPressFieldMapping};
-use crate::types::woocommerce::{woo_build_product, woo_product_builder, ProductVariation, WooCommerceProduct, WooProduct};
+use crate::types::woocommerce::{woo_build_product, woo_product_builder, ProductAttribute, ProductVariation, WooCommerceProduct, WooProduct};
 use crate::worker::{NewFileProcessQueue};
 
 use tokio::sync::Semaphore;
@@ -432,7 +432,7 @@ fn group_products_by_parent(
     
     // Vector to store parent products
     let mut parent_products: Vec<WooCommerceProduct> = Vec::new();
-
+    
     println!("\x1b[38;5;82mReverse Mapping Debug Info: {:?}\x1b[0m", reverse_mapping);
     println!("\x1b[38;5;196mAttribute Reverse Mapping Debug Info: {:?}\x1b[0m", attribute_reverse);
     
@@ -460,7 +460,7 @@ fn group_products_by_parent(
                 let binding = AttributeMapping::default();
                 let vad  = attribute_reverse.get(h).unwrap_or(&binding);
                 (vad.clone().column.to_lowercase(), AttributeMapping{
-                    column : v.to_string(), 
+                    column : v.to_string(),
                     variable:vad.variable.clone()
                 })
             })
@@ -499,18 +499,43 @@ fn group_products_by_parent(
     // Create the final result structure - O(p) where p is number of parents
     let result: Vec<(WooCommerceProduct, Vec<ProductVariation>)> = parent_products
         .into_iter()
-        .map(|parent| {
+        .map(|mut parent| {
             let children = parent_children_map
                 .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
+  
+                // For each child/variation
+                for child in &children {
+                    // For each attribute in the child
+                    for child_attr in &child.get_attribute() {
+                        // Try to find a matching attribute in the parent by name
+                        let mut pa_attribute_binding = parent.get_attribute();
+                        let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.name == child_attr.name);
+                        
+                        match parent_attr {
+                            Some(attr) => {
+                                // If the parent already has this attribute, add the option if it's not already there
+                                if !attr.options.contains(&child_attr.option) {
+                                    attr.options.push(child_attr.option.clone());
+                                }
+                            },
+                            None => {
+                                // If the parent doesn't have this attribute yet, create a new one
+                                let mut new_attr = ProductAttribute::new(child_attr.name.clone().as_str(), vec![child_attr.option.clone()]);
+                                
+                                parent.add_attribute(new_attr);
+                            }
+                        }
+                    }
+                }
+    
+            
             (parent, children)
         })
         .collect();
     
     Ok(result)
 }
-
-
   
   async fn update_product(
     &self,
