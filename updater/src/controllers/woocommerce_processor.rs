@@ -503,13 +503,13 @@ fn group_products_by_parent(
             let children = parent_children_map
                 .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
+            let mut pa_attribute_binding = parent.get_attribute();
   
                 // For each child/variation
                 for child in &children {
                     // For each attribute in the child
                     for child_attr in &child.get_attribute() {
                         // Try to find a matching attribute in the parent by name
-                        let mut pa_attribute_binding = parent.get_attribute();
                         let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.name == child_attr.name);
                         
                         match parent_attr {
