@@ -119,6 +119,8 @@ pub struct ProductVariation {
     shipping_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dimensions: Option<ProductDimension>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    meta_data:Vec<KeyValue>
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -828,7 +830,8 @@ pub fn woo_product_variation_builder(
         weight: weight_option,
         shipping_class: shipping_class_option,
         dimensions,
-        image: images.first().cloned()
+        image: images.first().cloned(), 
+        meta_data
     })
 }
 
