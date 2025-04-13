@@ -426,7 +426,8 @@ impl ProductVariation {
             dimensions: merge_option(&self.dimensions, &other.dimensions),
             weight: merge_option(&self.weight, &other.weight),
             image: merge_option(&self.image, &other.image),
-            stock_status: merge_option(&self.stock_status, &other.stock_status)
+            stock_status: merge_option(&self.stock_status, &other.stock_status), 
+            meta_data: merge_vec(&self.meta_data, &other.meta_data),
         }
     }
 
