@@ -750,7 +750,12 @@ pub fn woo_product_variation_builder(
     
     // Handle stock quantity and status
     let stock_quantity = get_value("stock_quantity").parse().ok();
-    let stock_status = get_value("stock_status").parse().ok();
+    let mut stock_status = get_value("stock_status");
+    let all_stock_status_type = vec!["instock", "outofstock", "onbackorder"];
+    if !all_stock_status_type.contains(&stock_status.as_str()) {
+        stock_status = "instock".to_string(); // Default to "instock" if not valid
+    }
+
     
     // Handle weight
     let weight = get_value("weight");
@@ -780,7 +785,7 @@ pub fn woo_product_variation_builder(
         sale_price,
         attributes,
         stock_quantity,
-        stock_status,
+        stock_status:Some(stock_status),
         weight: weight_option,
         shipping_class: shipping_class_option,
         dimensions,
