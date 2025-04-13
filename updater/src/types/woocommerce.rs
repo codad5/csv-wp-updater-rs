@@ -75,6 +75,14 @@ pub struct WooCommerceProduct {
     shipping_class: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     dimensions: Option<ProductDimension>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    meta_data:Vec<KeyValue>
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct KeyValue {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -235,6 +243,7 @@ impl WooCommerceProduct {
             stock_quantity: merge_option(&self.stock_quantity, &other.stock_quantity),
             shipping_class: merge_option(&self.shipping_class, &other.shipping_class),
             dimensions: merge_option(&self.dimensions, &other.dimensions),
+            meta_data: merge_vec(&self.meta_data, &other.meta_data),
         }
     }
 
@@ -541,13 +550,18 @@ pub fn  woo_product_builder(
       };
       
       let mut images = vec![];
+      let mut meta_data = vec![];
       
       if !featured_image.is_empty() {
-          images.push(ProductImage {
-              src: featured_image.clone(),
-              name: if name.is_empty() { None } else { Some(name.clone()) },
-              alt: if name.is_empty() { None } else { Some(name.clone()) },
-          });
+        meta_data.push(KeyValue{
+            key:"fifu_list_url".to_owned(), 
+            value:featured_image.clone()
+        });
+        images.push(ProductImage {
+            src: featured_image.clone(),
+            name: if name.is_empty() { None } else { Some(name.clone()) },
+            alt: if name.is_empty() { None } else { Some(name.clone()) },
+        });
       }
       
       images.extend(gallery_images.iter().map(|img| ProductImage {
@@ -639,7 +653,8 @@ pub fn  woo_product_builder(
           manage_stock: if stock_quantity.is_some() { Some(true) } else { None },
           stock_quantity,
           shipping_class: shipping_class_option,
-          dimensions
+          dimensions,
+          meta_data
       })
   }
 
