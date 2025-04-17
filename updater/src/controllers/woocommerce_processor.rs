@@ -513,7 +513,7 @@ fn group_products_by_parent(
                     // For each attribute in the child
                     for child_attr in &child.get_attribute() {
                         // Try to find a matching attribute in the parent by name
-                        let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.name == child_attr.name);
+                        let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.id == child_attr.id || attr.sku == child_attr.sku);
                         
                         match parent_attr {
                             Some(attr) => {
