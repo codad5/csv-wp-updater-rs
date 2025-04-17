@@ -173,6 +173,23 @@
     .add-attribute-btn {
       margin-top: 10px;
     }
+    .new-product-checkbox {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #e9f7ef;
+      border-radius: 8px;
+      border: 1px solid #d5f5e3;
+      display: flex;
+      align-items: center;
+    }
+    .new-product-checkbox input[type="checkbox"] {
+      margin-right: 10px;
+      transform: scale(1.2);
+    }
+    .new-product-checkbox label {
+      font-weight: bold;
+      color: #2e7d32;
+    }
   </style>
 </head>
 <body>
@@ -199,6 +216,13 @@
     <div id="section-mapping" class="section hidden">
       <h2>Map CSV Fields to WooCommerce Fields</h2>
       <p>Select which columns from your CSV file should map to WooCommerce product fields.</p>
+      
+      <!-- New Product Checkbox -->
+      <div class="new-product-checkbox">
+        <input type="checkbox" id="is_new_upload" name="is_new_upload">
+        <label for="is_new_upload">New product?</label>
+      </div>
+      
       <div id="mapping-container">
         <table class="mapping-table" id="mapping-table">
           <thead>
@@ -688,6 +712,7 @@
       let startRow = parseInt($('#startRow').val()) || 0;
       let rowCount = parseInt($('#rowCount').val()) || 99999;
       let priority = parseInt($('#priority').val()) || 1;
+      let isNewUpload = $('#is_new_upload').is(':checked');
 
       // Create a complete mapping object including attributes
       let completeMapping = { ...fieldMapping };
@@ -704,7 +729,8 @@
         startRow, 
         rowCount, 
         priority,
-        wordpress_field_mapping: completeMapping
+        wordpress_field_mapping: completeMapping,
+        is_new_upload: isNewUpload  // Add the new checkbox value to the data object
       };
 
       $.ajax({

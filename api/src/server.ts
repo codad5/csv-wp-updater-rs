@@ -170,6 +170,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
       priority = 1, 
       startRow = 0, 
       rowCount = 99999,
+      is_new_upload = false, // Default to false if not provided
       wordpress_field_mapping 
     } = req.body as ProcessOptions;
     
@@ -219,6 +220,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
       start_row: startRow,
       row_count: rowCount,
       wordpress_field_mapping: cleanedMapping,
+      is_new_upload
     });
     
     if (!d) {
