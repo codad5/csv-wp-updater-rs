@@ -10,6 +10,8 @@ pub struct NewFileProcessQueue {
     pub priority: u8,
     #[serde(default = "default_wordpress_field_mapping")]
     pub wordpress_field_mapping: WordPressFieldMapping,
+    #[serde(default)] 
+    pub is_new_upload: bool,
 }
 
 

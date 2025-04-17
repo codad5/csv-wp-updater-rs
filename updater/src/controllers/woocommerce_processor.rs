@@ -70,8 +70,11 @@ impl WooCommerceProcessor {
     }
   }
 
-async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping, start_row: u32, no_of_rows: u32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMapping, setting: &NewFileProcessQueue) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // File id is file path without ext
+    let start_row: u32  = setting.start_row;
+    let no_of_rows: u32 = setting.row_count;
+    let new_product = setting.is_new_upload;
     let file_id = file_path.split('.').next().unwrap_or("").to_string();
     FileProcessingManager::start_file_process(file_id.as_str(), 10000).await.unwrap_or(());
     
@@ -171,7 +174,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
 
             let mut parent_id = parent.id.clone();
 
-            match new_self_clone.handle_main_product(&parent, &mut redis_conn).await {
+            match new_self_clone.handle_main_product(&parent, &mut redis_conn, &new_product).await {
                 Ok(updated_parent) => {
                     println!("Parent processed successfully: {:?}", updated_parent);
                     parent_id = updated_parent.id.clone();
@@ -222,7 +225,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                         }
                     };
 
-                    match new_self_clone.handle_variation_product(&child, &parent_id_clone, &mut redis_conn).await {
+                    match new_self_clone.handle_variation_product(&child, &parent_id_clone, &mut redis_conn, &new_product).await {
                         Ok(updated_child) => {
                             println!("Child processed successfully: {:?} with parent_id: {:?}", updated_child, parent_id_clone);
                             // parent_id = updated_parent.id.clone();
@@ -282,13 +285,13 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     Ok(())
 }
 
-async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &mut MultiplexedConnection, new_product:&bool) -> Result<WooCommerceProduct, Box<dyn std::error::Error + Send + Sync>> {
     // if its parent id is empty then its a main product
     if !product.parent.is_empty() && product.parent != product.sku {
         return Err("Product is not a main product".into());
     }
     
-    let exists = self.get_or_fetch_product(redis_conn, &product).await;
+    let exists = self.get_or_fetch_product(redis_conn, &product, new_product).await;
     let mut new_product_update = product.clone();
     println!("new product update: {:?}", new_product_update);
     
@@ -355,13 +358,13 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
 }
 
 
-async fn handle_variation_product(&self, product: &ProductVariation, parent_id: &str, redis_conn: &mut MultiplexedConnection) -> Result<ProductVariation, Box<dyn std::error::Error + Send + Sync>> {
+async fn handle_variation_product(&self, product: &ProductVariation, parent_id: &str, redis_conn: &mut MultiplexedConnection, new_product: &bool) -> Result<ProductVariation, Box<dyn std::error::Error + Send + Sync>> {
     // if its parent id is empty then its a main product
     if product.parent.is_empty() {
         return Err("Product is a main product".into());
     }
     
-    let exists = self.get_or_fetch_product_variation(redis_conn, &product, parent_id.to_string()).await;
+    let exists = self.get_or_fetch_product_variation(redis_conn, &product, parent_id.to_string(), new_product).await;
     let mut new_product_update = product.clone();
     
     if let Some(product) = exists {
@@ -659,6 +662,31 @@ fn group_products_by_parent(
       Ok(found_product)
   }
 
+  async fn fetch_product_by_id(
+      &self,
+      id: &str,
+  ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+    let full_url = format!("{}/wp-json/wc/v3/products/{}", self.base_url, id);
+    println!("fetch_product_by_sku : {}",full_url);
+      let res = self
+          .woocommerce_client
+          .get(&full_url)
+          .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+          .header("Content-Type", "application/json")
+          .send()
+          .await?;
+
+      let body = res.text().await?; // Get response as a string
+      println!("\x1b[38;5;226mResponse body (bright yellow): {}\x1b[0m", body);
+      let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
+      println!("Response body from with sku: {}, fetch_product_by_sku: {:?}", id , products);
+
+      if products.id != id {
+        return Err(format!("Product SKU mismatch: expected {}, found {}", id, products.sku).into());
+      }
+      Ok(products)
+  }
+
 
 async fn fetch_product_variation_by_sku(
       &self,
@@ -696,6 +724,37 @@ async fn fetch_product_variation_by_sku(
   }
 
 
+  async fn fetch_product_variation_by_id(
+      &self,
+      parent_id: &str,
+      id: &str,
+  ) -> Result<ProductVariation, Box<dyn std::error::Error>> {
+    // /wp-json/wc/v3/products/3420061/variations?sku=my_random_sku
+    let full_url = format!("{}/wp-json/wc/v3/products/{}/variations/{}", self.base_url, parent_id, id);
+    println!("fetch_product_variation_by_sku : {}",full_url);
+      let res = self
+          .woocommerce_client
+          .get(&full_url)
+          .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+          .header("Content-Type", "application/json")
+          .send()
+          .await?;
+
+      let body = res.text().await?; // Get response as a string
+      println!("\x1b[38;5;200mResponse body (pinkish): {}\x1b[0m", body);
+      
+      let product: ProductVariation = serde_json::from_str(&body)?; // Parse JSON manually
+      println!("Response body from with sku: {}, fetch_product_variation_by_sku: {:?}", id , product);
+
+   
+
+      if product.id != id {
+        return Err(format!("Product SKU mismatch: expected {}, found {}", id, product.sku).into());
+      }
+      Ok(product)
+  }
+
+
 
   async fn get_progress(&self) -> ProcessingProgress {
     self.progress.lock().await.clone()
@@ -704,10 +763,12 @@ async fn fetch_product_variation_by_sku(
   async fn get_or_fetch_product(
     &self,
     redis_conn: &mut MultiplexedConnection,
-    product : &WooCommerceProduct
+    product : &WooCommerceProduct,
+    new_product:&bool
 ) -> Option<WooCommerceProduct> {
     // Try to get the product from Redis
     let sku = product.sku.clone();
+    let id: String = product.id.clone();
     if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
         if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
             println!("Product found in Redis: {:?}", product);
@@ -720,27 +781,43 @@ async fn fetch_product_variation_by_sku(
             println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
+    if *new_product {
         println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
-        match self.fetch_product_by_sku(&sku).await {
+        return match self.fetch_product_by_sku(&sku).await {
             Ok(product) => {
                 println!("Product found in WooCommerce: {:?}", product);
                 Some(product) // Found in WooCommerce, return it
             }
             Err(e) => {
-                println!("WooCommerce error: {:?}", e);
+                println!("WooCommerce error: (sku) {:?}", e);
                 None // Product not found or API error
             }
         }
     }
+    println!("Product not found in Redis, fetching from WooCommerce API... id : {} ", id);
+    match self.fetch_product_by_id(&id).await {
+        Ok(product) => {
+            println!("Product found in WooCommerce: {:?}", product);
+            Some(product) // Found in WooCommerce, return it
+        }
+        Err(e) => {
+            println!("WooCommerce error: (id) {:?}", e);
+            None // Product not found or API error
+        }
+    }
+        
+}
 
     async fn get_or_fetch_product_variation(
     &self,
     redis_conn: &mut MultiplexedConnection,
     product : &ProductVariation,
     parent_id: String,
+    new_product:&bool
 ) -> Option<ProductVariation> {
     // Try to get the product from Redis
     let sku = product.sku.clone();
+    let id = product.id.clone();
     if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
         if let Ok(product) = serde_json::from_str::<ProductVariation>(&json) {
             println!("Product found in Redis: {:?}", product);
@@ -753,18 +830,31 @@ async fn fetch_product_variation_by_sku(
             println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
+    println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
+    if *new_product {
         println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
-
-        match self.fetch_product_variation_by_sku( &parent_id, &sku).await {
+        return match self.fetch_product_variation_by_sku(&parent_id, &sku).await {
             Ok(product) => {
                 println!("Product found in WooCommerce: {:?}", product);
-                return Some(product); // Found in WooCommerce, return it
+                Some(product) // Found in WooCommerce, return it
             }
             Err(e) => {
-                println!("WooCommerce error(variation): {:?}", e);
-                return None // Product not found or API error
+                println!("WooCommerce error(variation) by sku: {:?}", e);
+                None // Product not found or API error
             }
         }
+    }
+    println!("Product not found in Redis, fetching from WooCommerce API... id : {} ", id);
+    match self.fetch_product_variation_by_id(&parent_id, &id).await {
+        Ok(product) => {
+            println!("Product found in WooCommerce: {:?}", product);
+            Some(product) // Found in WooCommerce, return it
+        }
+        Err(e) => {
+            println!("WooCommerce error(variation) by id: {:?}", e);
+            None // Product not found or API error
+        }
+    }
         
     }
 }
@@ -785,7 +875,7 @@ pub async fn process_woocommerce_csv(
   let processor = WooCommerceProcessor::new(base_url, consumer_key, consumer_secret).await;
   println!("Processor created");
   println!("Processing CSV file...");
-  match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, file_queue.start_row, file_queue.row_count).await {
+  match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, &file_queue).await {
     Ok(_) => Ok(()),
     Err(e) => Err(format!("Error processing CSV: {}", e)),
   }
