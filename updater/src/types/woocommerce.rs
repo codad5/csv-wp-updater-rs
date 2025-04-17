@@ -69,6 +69,8 @@ pub struct WooCommerceProduct {
     manage_stock: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     stock_quantity: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stock_status: Option<String>,
     #[serde(
         skip_serializing_if = "Option::is_none", 
         default,
@@ -233,6 +235,12 @@ impl WooCommerceProduct {
             type_  =  String::new(); // set to empty string if not valid
              // Return self if type is not valid
         } 
+        // Validate stock status
+        let all_stock_status_type = vec!["instock", "outofstock", "onbackorder"];
+        let mut stock_status = merge_option(&self.stock_status, &other.stock_status);
+        if !all_stock_status_type.contains(&self.stock_status.as_deref().unwrap_or("").to_lowercase().as_str()) {
+            stock_status = Some(String::from("instock")); // Reset type if stock status is invalid
+        }
 
         WooCommerceProduct {
             // Core product details
@@ -263,6 +271,7 @@ impl WooCommerceProduct {
             // Stock and shipping
             manage_stock: merge_option(&self.manage_stock, &other.manage_stock),
             stock_quantity: merge_option(&self.stock_quantity, &other.stock_quantity),
+            stock_status,
             shipping_class: merge_option(&self.shipping_class, &other.shipping_class),
             dimensions: merge_option(&self.dimensions, &other.dimensions),
             meta_data: merge_vec(&self.meta_data, &other.meta_data),
@@ -544,6 +553,7 @@ pub fn  woo_product_builder(
     let short_description = get_value("short_description");
     let regular_price = get_value("regular_price");
     let sale_price = get_value("sale_price");
+    let mut stock_status = get_value("stock_status");
     let parent = String::new();
     let feature_words = ["yes", "true", "1"];
     let featured = feature_words.contains(&get_value("featured").to_lowercase().as_str());
@@ -557,6 +567,11 @@ pub fn  woo_product_builder(
         if !["simple", "grouped", "external", "variable", "variation"].contains(&type_.to_lowercase().as_str()) {
             type_  =  String::new(); // set to empty string if not valid
         } 
+    }
+
+    let all_stock_status_type = vec!["instock", "outofstock", "onbackorder"];
+    if !all_stock_status_type.contains(&stock_status.as_str()) {
+        stock_status = String::from("instock"); // Reset type if stock status is invalid
     }
       
       // Handle categories
@@ -704,7 +719,8 @@ pub fn  woo_product_builder(
           stock_quantity,
           shipping_class: shipping_class_option,
           dimensions,
-          meta_data
+          meta_data, 
+          stock_status:Some(stock_status)
       })
   }
 
