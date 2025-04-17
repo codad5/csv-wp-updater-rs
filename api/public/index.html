@@ -338,7 +338,7 @@
 
     // WooCommerce fields from the provided HTML
     const woocommerceFields = [
-      { value: "id", label: "ID", required: false, description: "Unique product ID (auto-generated if empty)" },
+      { value: "id", label: "ID", required: true, description: "Unique product ID (auto-generated if empty)" },
       { value: "type", label: "Type", required: true, description: "Product type (simple, variable, grouped, external)" },
       { value: "sku", label: "SKU", required: true, description: "Unique SKU of product" },
       { value: "parent_id", label: "Parent", required: true, description: "Parent product SKU (for variations)" },
