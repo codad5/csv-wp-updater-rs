@@ -102,7 +102,7 @@ pub struct ProductVariation {
     pub id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub sku: String,
-    #[serde(skip_serializing_if = "String::is_empty", default)]
+    #[serde(skip_serializing_if = "String::is_empty", default, skip_serializing)]
     pub parent: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     description: String,
