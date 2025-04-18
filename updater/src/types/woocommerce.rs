@@ -635,6 +635,7 @@ pub fn  woo_product_builder(
           name: if name.is_empty() { None } else { Some(name.clone()) },
           alt: if name.is_empty() { None } else { Some(name.clone()) },
       }));
+
       
       // Handle attributes
       let material = get_value("material");
@@ -705,7 +706,9 @@ pub fn  woo_product_builder(
         } else {
             Some(weight)
         };
-      
+        
+        
+        println!("\x1b[38;5;231mImages for Product ID: {}, SKU: {}: {:?}\x1b[0m", id, sku, images);
       Ok(WooCommerceProduct {
           id,
           name,
@@ -853,7 +856,7 @@ pub fn woo_product_variation_builder(
     
     // Handle dimensions using the build_product_dimensions function
     let dimensions =  build_product_dimensions(product);
-    
+     println!("\x1b[38;5;231mImages for Product ID: {}, SKU: {}: {:?}\x1b[0m", id, sku, images);
     Ok(ProductVariation {
         id,
         sku,
