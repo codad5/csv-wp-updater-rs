@@ -700,6 +700,8 @@ pub fn  woo_product_builder(
       } else {
           Some(shipping_class)
       };
+
+    println!("\x1b[38;5;43mShipping Class for Product ID: {}, SKU: {}: {}\x1b[0m", id, sku, shipping_class_option.clone().unwrap_or_default());
       let weight = get_value("weight");
       let weight_option = if weight.is_empty() {
             None
