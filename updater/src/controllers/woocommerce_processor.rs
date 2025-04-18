@@ -478,6 +478,7 @@ fn group_products_by_parent(
                 // This is a parent or standalone product
                 // Add to parent products vector
                 parent_products.push(product.clone());
+                println!("Parent Product found {:?}", product);
                 
                 // Ensure there's an entry in the map for this parent
                 if !parent_children_map.contains_key(&product.sku) {
@@ -487,6 +488,7 @@ fn group_products_by_parent(
             Some(WooProduct::Variation(variation)) => {
                 // This is a child product (variation)
                 // Add to the parent's children vector in the map
+                println!("Child Product found {:?}", variation);
                 parent_children_map
                     .entry(variation.parent.clone())
                     .or_insert_with(Vec::new)
