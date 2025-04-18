@@ -444,6 +444,10 @@ impl ProductVariation {
         }
     }
 
+    pub fn set_parent(&mut self, parent: &String) {
+        self.parent = parent.clone();
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.sku.is_empty() {
             return Err("Product SKU is required".to_string());

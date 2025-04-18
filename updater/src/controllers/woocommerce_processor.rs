@@ -505,14 +505,17 @@ fn group_products_by_parent(
     let result: Vec<(WooCommerceProduct, Vec<ProductVariation>)> = parent_products
         .into_iter()
         .map(|mut parent| {
-            let children = parent_children_map
+            let mut children = parent_children_map
                 .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
+            let parent_id = parent.id.clone();
             let pa_attribute_binding = parent.get_attribute_mut();
   
                 // For each child/variation
-                for child in &children {
+                for child in &mut children {
                     // For each attribute in the child
+                    // let parent_ = parent.clone();
+                    child.set_parent(&parent_id);
                     for child_attr in &child.get_attribute() {
                         // Try to find a matching attribute in the parent by name
                         let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.name == child_attr.name);
