@@ -225,9 +225,6 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                         }
                     };
 
-                    let mut child = child.clone();
-                    child.set_parent(&parent_id_clone);
-
                     match new_self_clone.handle_variation_product(&child, &parent_id_clone, &mut redis_conn, &new_product).await {
                         Ok(updated_child) => {
                             println!("Child processed successfully: {:?} with parent_id: {:?}", updated_child, parent_id_clone);

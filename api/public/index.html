@@ -190,6 +190,27 @@
       font-weight: bold;
       color: #2e7d32;
     }
+
+    .rules-container {
+      margin: 15px 0;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-left: 4px solid #007bff;
+      border-radius: 4px;
+    }
+
+    .rules-list {
+      margin-bottom: 0;
+      padding-left: 20px;
+    }
+
+    .rules-list li {
+      margin-bottom: 8px;
+    }
+
+    .rules-list li:last-child {
+      margin-bottom: 0;
+    } 
   </style>
 </head>
 <body>
@@ -216,6 +237,19 @@
     <div id="section-mapping" class="section hidden">
       <h2>Map CSV Fields to WooCommerce Fields</h2>
       <p>Select which columns from your CSV file should map to WooCommerce product fields.</p>
+
+      <div class="rules-container">
+      <h3>📝 Important Notes & Rules</h3>
+      <ul class="rules-list">
+        <li><strong>Required Fields:</strong> Fields with <span style="color: #dc3545;">*</span> are mandatory and must be mapped.</li>
+        <li><strong>CSV Headers:</strong> Your CSV must have headers that match or are similar to WooCommerce fields for best auto-mapping.</li>
+        <li><strong>Variations:</strong> For product variations, ensure the Parent SKU is correctly set in the Parent field.</li>
+        <li><strong>Images:</strong> Multiple images should be separated by the pipe symbol (|) in your CSV.</li>
+        <li><strong>Categories:</strong> Multiple categories should be separated by the pipe symbol (|).</li>
+        <li><strong>Attributes:</strong> For variable products, make sure to check the "Variable" box for attributes used in variations.</li>
+        <li><strong>New Products:</strong> Check the "New product" box below if you're uploading entirely new products rather than updating existing ones.</li>
+      </ul>
+    </div>
       
       <!-- New Product Checkbox -->
       <div class="new-product-checkbox">
