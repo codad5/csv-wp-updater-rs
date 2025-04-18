@@ -225,6 +225,9 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                         }
                     };
 
+                    let mut child = child.clone();
+                    child.set_parent(&parent_id_clone);
+
                     match new_self_clone.handle_variation_product(&child, &parent_id_clone, &mut redis_conn, &new_product).await {
                         Ok(updated_child) => {
                             println!("Child processed successfully: {:?} with parent_id: {:?}", updated_child, parent_id_clone);
@@ -508,14 +511,14 @@ fn group_products_by_parent(
             let mut children = parent_children_map
                 .remove(&parent.sku)
                 .unwrap_or_else(Vec::new);
-            let parent_id = parent.id.clone();
+            // let parent_id = parent.id.clone();
             let pa_attribute_binding = parent.get_attribute_mut();
   
                 // For each child/variation
                 for child in &mut children {
                     // For each attribute in the child
                     // let parent_ = parent.clone();
-                    child.set_parent(&parent_id);
+                    // child.set_parent(&parent_id);
                     for child_attr in &child.get_attribute() {
                         // Try to find a matching attribute in the parent by name
                         let parent_attr = pa_attribute_binding.iter_mut().find(|attr| attr.name == child_attr.name);

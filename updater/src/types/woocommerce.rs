@@ -446,6 +446,7 @@ impl ProductVariation {
 
     pub fn set_parent(&mut self, parent: &String) {
         self.parent = parent.clone();
+        println!("\x1b[38;5;220mUpdated child with ID {} and SKU {} parent ID to {}\x1b[0m", self.id, self.sku, parent);
     }
 
     pub fn validate(&self) -> Result<(), String> {
