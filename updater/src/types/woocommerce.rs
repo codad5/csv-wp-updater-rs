@@ -612,6 +612,8 @@ pub fn  woo_product_builder(
       } else {
           vec![]
       };
+
+    println!("\x1b[38;5;45mImages for Product ID: {}, SKU: {}: {:?}\x1b[0m", id, sku, gallery_images);
       
       let mut images = vec![];
       let mut meta_data = vec![];
