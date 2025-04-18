@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde::{Serializer, Deserializer};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -86,7 +87,7 @@ pub struct WooCommerceProduct {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct KeyValue {
     pub key: String,
-    pub value: String,
+    pub value: Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -613,7 +614,7 @@ pub fn  woo_product_builder(
       if !featured_image.is_empty() {
         meta_data.push(KeyValue{
             key:"fifu_list_url".to_owned(), 
-            value:featured_image.clone()
+            value: serde_json::Value::String(featured_image.clone())
         });
         images.push(ProductImage {
             src: featured_image.clone(),
@@ -790,7 +791,8 @@ pub fn woo_product_variation_builder(
     if !featured_image.is_empty() {
     meta_data.push(KeyValue{
         key:"fifu_list_url".to_owned(), 
-        value:featured_image.clone()
+        value: serde_json::Value::String(featured_image.clone())
+
     });
     images.push(ProductImage {
         src: featured_image.clone(),
