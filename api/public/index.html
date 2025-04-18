@@ -239,17 +239,19 @@
       <p>Select which columns from your CSV file should map to WooCommerce product fields.</p>
 
       <div class="rules-container">
-      <h3>📝 Important Notes & Rules</h3>
-      <ul class="rules-list">
-        <li><strong>Required Fields:</strong> Fields with <span style="color: #dc3545;">*</span> are mandatory and must be mapped.</li>
-        <li><strong>CSV Headers:</strong> Your CSV must have headers that match or are similar to WooCommerce fields for best auto-mapping.</li>
-        <li><strong>Variations:</strong> For product variations, ensure the Parent SKU is correctly set in the Parent field.</li>
-        <li><strong>Images:</strong> Multiple images should be separated by the pipe symbol (|) in your CSV.</li>
-        <li><strong>Categories:</strong> Multiple categories should be separated by the pipe symbol (|).</li>
-        <li><strong>Attributes:</strong> For variable products, make sure to check the "Variable" box for attributes used in variations.</li>
-        <li><strong>New Products:</strong> Check the "New product" box below if you're uploading entirely new products rather than updating existing ones.</li>
-      </ul>
-    </div>
+        <h3>📝 Important Notes & Rules</h3>
+        <ul class="rules-list">
+          <li><strong>Required Fields:</strong> Fields with <span style="color: #dc3545;">*</span> are mandatory and must be mapped.</li>
+          <li><strong>CSV Headers:</strong> Your CSV must have headers that match or are similar to WooCommerce fields for best auto-mapping.</li>
+          <li><strong>Variations:</strong> For product variations, ensure the Parent SKU is correctly set in the Parent field.</li>
+          <li><strong>Variable Products:</strong> Before you can have a variation of a main product, there must be at least one variable attribute (WooCommerce standard).</li>
+          <li><strong>Field Mapping:</strong> You cannot map 2 WooCommerce fields to the same CSV column as this would cause data overwrite.</li>
+          <li><strong>Images:</strong> Multiple images should be separated by the pipe symbol (|) in your CSV.</li>
+          <li><strong>Categories:</strong> Multiple categories should be separated by the pipe symbol (|).</li>
+          <li><strong>Attributes:</strong> For variable products, make sure to check the "Variable" box for attributes used in variations.</li>
+          <li><strong>New Products:</strong> Check the "New product" box below if you're uploading entirely new products rather than updating existing ones.</li>
+        </ul>
+      </div>
       
       <!-- New Product Checkbox -->
       <div class="new-product-checkbox">
