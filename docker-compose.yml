@@ -61,6 +61,7 @@ services:
       # - "${REDIS_PORT}:${REDIS_PORT}"
     volumes:
       - redis-data:/data
+    restart: always
     command: redis-server --appendonly yes
 
   rabbitmq:
@@ -68,6 +69,7 @@ services:
     ports:
       - "${RABBITMQ_PORT}:5672"      # AMQP port
       - "${RABBITMQ_UI_PORT}:15672"  # Management UI port
+    restart: always
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     environment:
