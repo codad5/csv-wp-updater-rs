@@ -715,7 +715,7 @@ pub fn  woo_product_builder(
           id,
           name,
           sku,
-          type_,
+          type_: type_.to_lowercase(),
           featured,
           parent,
           regular_price,
