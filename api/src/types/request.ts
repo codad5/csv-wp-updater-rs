@@ -24,6 +24,7 @@ export interface WordPressFieldMapping {
     tax_status?: string;
     tax_class?: string;
     stock_status?: string;
+    manage_stock?: string;
     stock_quantity?: string;
     backorders?: string;
     low_stock_amount?: string;
