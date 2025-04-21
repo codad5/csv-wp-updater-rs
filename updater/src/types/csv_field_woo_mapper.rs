@@ -22,6 +22,7 @@ pub struct WordPressFieldMapping {
     pub tax_class: Option<String>,
     pub stock_status: Option<String>,
     pub stock_quantity: Option<String>,
+    pub manage_stock: Option<String>,
     pub backorders: Option<String>,
     pub low_stock_amount: Option<String>,
     pub sold_individually: Option<String>,
@@ -91,6 +92,7 @@ pub fn default_wordpress_field_mapping() -> WordPressFieldMapping {
         tax_class: None,
         stock_status: None,
         stock_quantity: Some("Stock".to_string()),
+        manage_stock:Some("Manage Stock".to_string()),
         backorders: None,
         low_stock_amount: None,
         sold_individually: None,
@@ -145,6 +147,7 @@ impl WordPressFieldMapping {
         map.insert("tax_class".to_string(), self.tax_class.clone());
         map.insert("stock_status".to_string(), self.stock_status.clone());
         map.insert("stock_quantity".to_string(), self.stock_quantity.clone());
+        map.insert("manage_stock".to_string(), self.manage_stock.clone());
         map.insert("backorders".to_string(), self.backorders.clone());
         map.insert("low_stock_amount".to_string(), self.low_stock_amount.clone());
         map.insert("sold_individually".to_string(), self.sold_individually.clone());
@@ -208,6 +211,7 @@ impl WordPressFieldMapping {
             "tax_class" => self.tax_class.as_ref(),
             "stock_status" => self.stock_status.as_ref(),
             "stock_quantity" => self.stock_quantity.as_ref(),
+            "manage_stock" => self.manage_stock.as_ref(),
             "backorders" => self.backorders.as_ref(),
             "low_stock_amount" => self.low_stock_amount.as_ref(),
             "sold_individually" => self.sold_individually.as_ref(),
@@ -259,6 +263,7 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.tax_class { map.insert("tax_class".to_string(), val.clone()); }
         if let Some(val) = &self.stock_status { map.insert("stock_status".to_string(), val.clone()); }
         if let Some(val) = &self.stock_quantity { map.insert("stock_quantity".to_string(), val.clone()); }
+        if let Some(val) = &self.manage_stock { map.insert("manage_stock".to_string(), val.clone()); }
         if let Some(val) = &self.backorders { map.insert("backorders".to_string(), val.clone()); }
         if let Some(val) = &self.low_stock_amount { map.insert("low_stock_amount".to_string(), val.clone()); }
         if let Some(val) = &self.sold_individually { map.insert("sold_individually".to_string(), val.clone()); }
@@ -315,6 +320,7 @@ impl WordPressFieldMapping {
         if let Some(val) = &self.tax_class { map.insert(val.clone(), "tax_class".to_string()); }
         if let Some(val) = &self.stock_status { map.insert(val.clone(), "stock_status".to_string()); }
         if let Some(val) = &self.stock_quantity { map.insert(val.clone(), "stock_quantity".to_string()); }
+        if let Some(val) = &self.manage_stock { map.insert(val.clone(), "manage_stock".to_string()); }
         if let Some(val) = &self.backorders { map.insert(val.clone(), "backorders".to_string()); }
         if let Some(val) = &self.low_stock_amount { map.insert(val.clone(), "low_stock_amount".to_string()); }
         if let Some(val) = &self.sold_individually { map.insert(val.clone(), "sold_individually".to_string()); }
