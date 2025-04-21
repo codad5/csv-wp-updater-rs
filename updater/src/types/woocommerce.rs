@@ -116,6 +116,13 @@ pub struct ProductVariation {
     stock_quantity: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     image: Option<ProductImage>,
+    // Stock and shipping
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        default,
+        deserialize_with = "deserialize_optional_bool_none_if_false"
+    )]
+    manage_stock: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stock_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -439,6 +446,7 @@ impl ProductVariation {
             dimensions: merge_option(&self.dimensions, &other.dimensions),
             weight: merge_option(&self.weight, &other.weight),
             image: merge_option(&self.image, &other.image),
+            manage_stock: merge_option(&self.manage_stock, &other.manage_stock),
             stock_status: merge_option(&self.stock_status, &other.stock_status), 
             meta_data: merge_vec(&self.meta_data, &other.meta_data),
         }
@@ -867,6 +875,7 @@ pub fn woo_product_variation_builder(
         regular_price,
         sale_price,
         attributes,
+        manage_stock: if stock_quantity.is_some() { Some(true) } else { None },
         stock_quantity,
         stock_status:Some(stock_status),
         weight: weight_option,
