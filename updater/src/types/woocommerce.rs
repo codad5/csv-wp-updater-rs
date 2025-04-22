@@ -515,11 +515,6 @@ impl ProductVariation {
         !self.get_changes(other).is_empty()
     }
 
-    // a method to check if main product or a variation
-    pub fn is_main_product(&self) -> bool {
-        false
-    }
-
     pub fn get_attribute(&self) -> Vec<VariationAttribute> {
         self.attributes.clone()
     }
@@ -819,36 +814,6 @@ pub fn woo_product_variation_builder(
 
     // Handle attributes for variations
     let mut attributes = Vec::new();
-
-    // Look for variation attributes in the product hashmap
-    // This assumes that variation attributes are stored with keys like "attribute_color", "attribute_size", etc.
-    // for (key, value) in product.iter() {
-    //     if key.starts_with("attribute_") && !value.is_empty() {
-    //         let attr_name = key.trim_start_matches("attribute_").to_string();
-    //         attributes.push(VariationAttribute {
-    //             name: attr_name,
-    //             option: value.clone(),
-    //         });
-    //     }
-    // }
-
-    // Handle specific variation attributes if they don't follow the standard pattern
-    let color = get_value("color");
-    let size = get_value("size");
-
-    // if !color.is_empty() && !attributes.iter().any(|a| a.name == "Color") {
-    //     attributes.push(VariationAttribute {
-    //         name: "Color".to_string(),
-    //         option: color,
-    //     });
-    // }
-
-    // if !size.is_empty() && !attributes.iter().any(|a| a.name == "Size") {
-    //     attributes.push(VariationAttribute {
-    //         name: "Size".to_string(),
-    //         option: size,
-    //     });
-    // }
 
     let main_image = get_value("images");
     let featured_image = get_value("featured_image");

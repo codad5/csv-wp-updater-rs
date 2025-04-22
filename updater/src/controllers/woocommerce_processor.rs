@@ -133,8 +133,6 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     let _file_id = Arc::new(file_id.to_string());
     
     let mut count = 0;
-    let mut processed_count = 0;
-    let mut skus: Vec<String> = vec![];
 
     let record_vec: Vec<Result<csv::StringRecord, csv::Error>> = rdr.records().collect();
 
@@ -367,15 +365,15 @@ async fn handle_variation_product(&self, product: &ProductVariation, parent_id: 
     let exists = self.get_or_fetch_product_variation(redis_conn, &product, parent_id.to_string(), new_product).await;
     let mut new_product_update = product.clone();
     
-    if let Some(product) = exists {
+    if let Some(found_product) = exists {
         // merge the new product update with the existing
         // check if there is any difference between the merged and the new product update, if any diff call the update method to update through the api
         // if no change skip
         
         // Check core fields that would require an update
-        if product.has_changed(&new_product_update) {
+        if found_product.has_changed(&new_product_update) {
             
-            let update_prod = product.merge(&new_product_update);
+            let update_prod = found_product.merge(&new_product_update);
             let update_prod = self.update_product_variation(&update_prod, parent_id).await;
             match update_prod {
                 Ok(p) => {
