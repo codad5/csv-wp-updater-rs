@@ -11,8 +11,7 @@ use super::csv_field_woo_mapper::AttributeMapping;
 pub struct WooCommerceProduct {
     // Core product details
     #[serde(
-        skip_serializing_if = "String::is_empty",
-        serialize_with = "serialize_id_as_number",
+        skip_serializing,
         deserialize_with = "deserialize_id_as_string",
         default
     )]
