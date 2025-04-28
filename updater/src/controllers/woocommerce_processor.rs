@@ -302,6 +302,7 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
         if found_product.has_changed(&new_product_update) {
             
             let update_prod = found_product.merge(&new_product_update);
+            
             // print before and after the merge
             println!("Product before merge: {:?} \nProduct after merge: {:?}", found_product, update_prod);
             let update_prod = self.update_product(&update_prod).await;

@@ -252,7 +252,7 @@ impl WooCommerceProduct {
         WooCommerceProduct {
             // Core product details
             name: merge_string(&self.name, &other.name),
-            id: merge_string(&self.id, &other.id),
+            id: self.id.to_string(),
             sku: merge_string(&self.sku, &other.sku),
             type_,
             featured: false,
