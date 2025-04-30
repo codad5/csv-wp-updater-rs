@@ -871,13 +871,13 @@ pub async fn process_woocommerce_csv(
   file_queue: NewFileProcessQueue
 ) -> Result<(), String> {
   let file_queue = file_queue.clone();
-  let base_url = file_queue.site_details.url.clone();
-  let consumer_key = file_queue.site_details.key.clone();
-  let consumer_secret = file_queue.site_details.secret.clone();
+  let base_url = &file_queue.site_details.url;
+  let consumer_key = &file_queue.site_details.key;
+  let consumer_secret = &file_queue.site_details.secret;
   println!("Processing CSV: {:?}", file_queue);
   println!("Base URL: {}", base_url);
   println!("Consumer Key: {}", consumer_key);
-  let processor = WooCommerceProcessor::new(base_url, consumer_key, consumer_secret).await;
+  let processor = WooCommerceProcessor::new(base_url.to_owned(), consumer_key.to_owned(), consumer_secret.to_owned()).await;
   println!("Processor created");
   println!("Processing CSV file...");
   match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, &file_queue).await {
