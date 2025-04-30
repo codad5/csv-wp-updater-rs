@@ -250,7 +250,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     };
                     // print available permits
                     let duration = start.elapsed();
-                    println!("\x1b[97;48;5;42mTime taken for parent {}: {:?}\x1b[0m", parent.sku, duration);
+                    println!("\x1b[97;48;5;42mTime taken for child {}: {:?}\x1b[0m", child.sku, duration);
                  });
                  child_futures.push(child_task);
             }
