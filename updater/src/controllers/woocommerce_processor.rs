@@ -127,7 +127,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     
     let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let max_concurrency : usize = (total_row_count / 50).clamp(100, 2000).try_into().unwrap();
+    let max_concurrency : usize = (total_row_count / 10).clamp(100, 2000).try_into().unwrap();
     println!("\x1b[38;5;166mSpawning with concurrency limit: {max_concurrency}\x1b[0m");
     let semaphore = Arc::new(Semaphore::new(max_concurrency)); // Limit to 40 concurrent tasks
     let redis_client = self.redis_client.clone();
