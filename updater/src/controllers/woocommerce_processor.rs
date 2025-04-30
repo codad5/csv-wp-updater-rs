@@ -352,6 +352,10 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
             }
         }
     }
+
+    if new_product_update.validate().is_err() {
+        return Err(format!("Product validation failed: {:?}", new_product_update).into());
+    }
     
     Ok(new_product_update)
 }
