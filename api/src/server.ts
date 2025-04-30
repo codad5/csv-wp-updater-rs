@@ -217,12 +217,12 @@ app.post('/process/:id', async (req: Request, res: Response) => {
     }
     
     const d = await mqConnection.sendToQueue(Queue.CSV_UPLOAD, {
+      site_details:siteDetails,
       file: fileName,
       start_row: startRow,
       row_count: rowCount,
       wordpress_field_mapping: cleanedMapping,
       is_new_upload, 
-      siteDetails
     });
     
     if (!d) {
