@@ -4,6 +4,12 @@ export interface ProcessOptions {
     priority?: 0 | 1 | 2; // 0 = low, 1 = normal, 2 = high
     is_new_upload?: boolean;
     wordpress_field_mapping?: WordPressFieldMapping;
+    siteDetails: {
+        key: string;
+        secret: string;
+        url: string;
+        name: string;
+    }
 }
 
 export interface WordPressFieldMapping {

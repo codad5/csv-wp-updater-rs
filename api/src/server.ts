@@ -167,6 +167,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { 
+      siteDetails,
       priority = 1, 
       startRow = 0, 
       rowCount = 99999,
@@ -205,7 +206,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
         id,
         file: fileName,
         message: 'File is already in processing',
-        options: { priority, wordpress_field_mapping: cleanedMapping },
+        options: { priority, wordpress_field_mapping: cleanedMapping, siteDetails: {...siteDetails, secret:'***'} },
         status: 'processing',
         progress,
         totalEntries,
@@ -220,7 +221,8 @@ app.post('/process/:id', async (req: Request, res: Response) => {
       start_row: startRow,
       row_count: rowCount,
       wordpress_field_mapping: cleanedMapping,
-      is_new_upload
+      is_new_upload, 
+      siteDetails
     });
     
     if (!d) {
@@ -233,7 +235,7 @@ app.post('/process/:id', async (req: Request, res: Response) => {
       id,
       file: fileName,
       message: 'File processing started',
-      options: { priority, wordpress_field_mapping: cleanedMapping },
+      options: { priority, wordpress_field_mapping: cleanedMapping , siteDetails: {...siteDetails, secret:'***'}},
       status: 'queued',
       progress: 0,
       queuedAt: new Date(),

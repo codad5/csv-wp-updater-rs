@@ -18,6 +18,7 @@
       padding: 20px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      position: relative;
     }
     .progress-container { 
       margin-top: 10px;
@@ -50,6 +51,7 @@
     input[type="text"],
     input[type="number"],
     input[type="file"],
+    input[type="password"],
     select {
       width: 100%;
       padding: 8px;
@@ -210,13 +212,162 @@
 
     .rules-list li:last-child {
       margin-bottom: 0;
-    } 
+    }
+    
+    /* Site Selector Styles */
+    .site-selector {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .site-selector select {
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      min-width: 200px;
+    }
+    
+    .add-site-btn {
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+    
+    /* Modal Styles */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .modal-container {
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      width: 500px;
+      max-width: 90%;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .modal-header h3 {
+      margin: 0;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: #666;
+    }
+    
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+    
+    .modal-btn-cancel {
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    
+    .modal-btn-save {
+      background-color: #28a745;
+    }
+    
+    .modal-btn-delete {
+      background-color: #dc3545;
+      margin-right: auto;
+    }
+
+    .hidden{
+      display: none;
+    }
+
+    .view-sites-btn {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+
+  .view-sites-btn:hover {
+    background: #5a6268;
+  }
+
+  .edit-site-btn:hover {
+    background: #0069d9;
+  }
+
+  .select-site-btn:hover:not(:disabled) {
+    background: #218838;
+  }
+
+  /* Responsive table for sites list */
+  @media (max-width: 768px) {
+    #sites-table {
+      display: block;
+      overflow-x: auto;
+    }
+    
+    .modal-container {
+      width: 95% !important;
+    }
+  }
+
+  /* Badge styling */
+  .badge {
+    display: inline-block;
+    padding: 0.25em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+  }
   </style>
 </head>
 <body>
   <div class="content">
     <h1>CSV Processor for WooCommerce 📊</h1>
     <p>Upload, map fields, and process your CSV files with ease.</p>
+    
+    <!-- Site Selector -->
+  <div class="site-selector">
+    <select id="site-select">
+      <option value="">Select a site</option>
+    </select>
+    <button class="view-sites-btn" onclick="showViewSitesModal()" style="margin-right: 5px;">View Sites</button>
+    <button class="add-site-btn" onclick="showAddSiteModal()">+ Add Site</button>
+  </div>
 
     <div class="step-indicator">
       <div class="step active" id="step1">1. Upload CSV</div>
@@ -322,6 +473,73 @@
       <pre id="processingResults">Results will appear here after processing.</pre>
     </div>
   </div>
+  
+  <!-- Add Site Modal -->
+  <div id="site-modal" class="modal-backdrop hidden">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 id="modal-title">Add New Site</h3>
+        <button class="modal-close" onclick="hideModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group">
+          <label for="site-name">Site Name</label>
+          <input type="text" id="site-name" placeholder="My Store" required>
+        </div>
+        <div class="input-group">
+          <label for="site-url">Site URL</label>
+          <input type="text" id="site-url" placeholder="https://mystore.com" required>
+        </div>
+        <div class="input-group">
+          <label for="consumer-key">Consumer Key</label>
+          <input type="text" id="consumer-key" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxx" required>
+        </div>
+        <div class="input-group">
+          <label for="consumer-secret">Consumer Secret</label>
+          <input type="password" id="consumer-secret" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxx" required>
+        </div>
+        <input type="hidden" id="edit-site-id" value="">
+      </div>
+      <div class="modal-footer">
+        <button id="delete-site-btn" class="modal-btn-delete hidden" onclick="deleteSite()">Delete</button>
+        <button class="modal-btn-cancel" onclick="hideModal()">Cancel</button>
+        <button class="modal-btn-save" onclick="saveSite()">Save Site</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Sites Modal -->
+  <div id="view-sites-modal" class="modal-backdrop hidden">
+    <div class="modal-container" style="width: 700px;">
+      <div class="modal-header">
+        <h3>Manage Sites</h3>
+        <button class="modal-close" onclick="hideViewSitesModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="sites-list-container">
+          <table class="mapping-table" id="sites-table">
+            <thead>
+              <tr>
+                <th>Site Name</th>
+                <th>URL</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sites-list-body">
+              <!-- Sites will be loaded here dynamically -->
+            </tbody>
+          </table>
+          <div id="no-sites-message" class="hidden" style="text-align: center; padding: 20px;">
+            <p>No sites configured yet. Add your first site to get started.</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn-cancel" onclick="hideViewSitesModal()">Close</button>
+        <button class="modal-btn-save" onclick="showAddSiteModal()">Add New Site</button>
+      </div>
+    </div>
+  </div>
 
 <script>
   /**
@@ -371,6 +589,18 @@ let attributeMappings = {};
  * @description Counter to track the number of attributes processed.
  */
 let attributeCounter = 0;
+
+/**
+ * @type {Array<Object>}
+ * @description Array to store site configurations
+ */
+let sitesList = [];
+
+/**
+ * @type {string|null}
+ * @description Currently selected site ID
+ */
+let currentSiteId = null;
 
 // WooCommerce fields from the provided HTML
 const woocommerceFields = [
@@ -422,6 +652,389 @@ const woocommerceFields = [
 const FIELD_MAPPING_KEY = 'csvProcessor_fieldMapping';
 const ATTRIBUTE_MAPPING_KEY = 'csvProcessor_attributeMapping';
 const IS_NEW_UPLOAD_KEY = 'csvProcessor_isNewUpload';
+const SITES_LIST_KEY = 'csvProcessor_sites';
+const CURRENT_SITE_KEY = 'csvProcessor_currentSite';
+
+// Site management functions
+
+/**
+ * Initializes the site management and loads saved sites
+ */
+/**
+ * Initializes the site management and loads saved sites
+ */
+function initSites() {
+  loadSitesFromStorage();
+  populateSiteSelector();
+  
+  // Set up event listener for site selection
+  $('#site-select').on('change', function() {
+    const selectedSiteId = $(this).val();
+    if (selectedSiteId) {
+      selectSite(selectedSiteId);
+    }
+  });
+  
+  // Add DOM ready event handler
+  $(document).ready(function() {
+    // If we have sites but none selected, select the first one
+    if (sitesList.length > 0 && !currentSiteId) {
+      selectSite(sitesList[0].id);
+    }
+  });
+}
+
+
+/**
+ * Loads site configurations from IndexedDB or localStorage
+ */
+function loadSitesFromStorage() {
+  // Try to load from localStorage first
+  const storedSites = localStorage.getItem(SITES_LIST_KEY);
+  if (storedSites) {
+    sitesList = JSON.parse(storedSites);
+  } else {
+    sitesList = [];
+  }
+  
+  // Load the current site ID
+  currentSiteId = localStorage.getItem(CURRENT_SITE_KEY) || null;
+}
+
+/**
+ * Saves site configurations to storage
+ */
+function saveSitesToStorage() {
+  localStorage.setItem(SITES_LIST_KEY, JSON.stringify(sitesList));
+}
+
+/**
+ * Saves the current site ID to storage
+ */
+function saveCurrentSiteToStorage() {
+  if (currentSiteId) {
+    localStorage.setItem(CURRENT_SITE_KEY, currentSiteId);
+  }
+}
+
+/**
+ * Populates the site selector dropdown with available sites
+ */
+function populateSiteSelector() {
+  const siteSelect = $('#site-select');
+  siteSelect.empty();
+  
+  // Add default option
+  siteSelect.append($('<option>').attr('value', '').text('Select a site'));
+  
+  // Add sites from the list
+  sitesList.forEach(site => {
+    siteSelect.append($('<option>').attr('value', site.id).text(site.name));
+  });
+  
+  // Select the current site if available
+  if (currentSiteId && sitesList.some(site => site.id === currentSiteId)) {
+    siteSelect.val(currentSiteId);
+  }
+}
+
+/**
+ * Selects a site by ID and updates the current site
+ * @param {string} siteId - The ID of the site to select
+ */
+function selectSite(siteId) {
+  currentSiteId = siteId;
+  saveCurrentSiteToStorage();
+  
+  // Update the site selector
+  $('#site-select').val(siteId);
+  
+  // You could also load site-specific mappings here if needed
+  console.log(`Selected site: ${siteId}`);
+}
+
+/**
+ * Shows the add site modal
+ */
+function showAddSiteModal() {
+  // Clear the form
+  $('#site-name').val('');
+  $('#site-url').val('');
+  $('#consumer-key').val('');
+  $('#consumer-secret').val('');
+  $('#edit-site-id').val('');
+  
+  // Hide delete button for new sites
+  $('#delete-site-btn').addClass('hidden');
+  
+  // Set modal title
+  $('#modal-title').text('Add New Site');
+  
+  // Show the modal
+  $('#site-modal').removeClass('hidden');
+}
+
+/**
+ * Shows the edit site modal for an existing site
+ * @param {string} siteId - The ID of the site to edit
+ */
+function showEditSiteModal(siteId) {
+  const site = sitesList.find(s => s.id === siteId);
+  if (!site) return;
+  
+  // Fill the form
+  $('#site-name').val(site.name);
+  $('#site-url').val(site.url);
+  $('#consumer-key').val(site.key);
+  $('#consumer-secret').val(site.secret);
+  $('#edit-site-id').val(site.id);
+  
+  // Show delete button for existing sites
+  $('#delete-site-btn').removeClass('hidden');
+  
+  // Set modal title
+  $('#modal-title').text('Edit Site');
+  
+  // Show the modal
+  $('#site-modal').removeClass('hidden');
+}
+
+/**
+ * Hides the site modal
+ */
+function hideModal() {
+  $('#site-modal').addClass('hidden');
+}
+
+/**
+ * Saves a new site or updates an existing one
+ */
+function saveSite() {
+  loadSitesFromStorage()
+  const siteName = $('#site-name').val().trim();
+  const siteUrl = $('#site-url').val().trim();
+  const consumerKey = $('#consumer-key').val().trim();
+  const consumerSecret = $('#consumer-secret').val().trim();
+  const editSiteId = $('#edit-site-id').val();
+  console.log(`Saving site: ${siteName}, ${siteUrl}, ${consumerKey}, ${consumerSecret}`);
+  
+  // Basic validation
+  if (!siteName || !siteUrl || !consumerKey || !consumerSecret) {
+    alert('Please fill in all fields');
+    return;
+  }
+
+  // check if same site already exists
+  const existingSite = sitesList.find(site => site.name === siteName && site.id !== editSiteId);
+  
+  if (editSiteId) {
+    // Update existing site
+    const siteIndex = sitesList.findIndex(s => s.id === editSiteId);
+    if (siteIndex !== -1) {
+      sitesList[siteIndex] = {
+        id: editSiteId,
+        name: siteName,
+        url: siteUrl,
+        key: consumerKey,
+        secret: consumerSecret
+      };
+    }
+  } else {
+    // Add new site
+    const newSite = {
+      id: generateUniqueId(),
+      name: siteName,
+      url: siteUrl,
+      key: consumerKey,
+      secret: consumerSecret
+    };
+    
+    sitesList.push(newSite);
+    
+    // If this is the first site, select it automatically
+    if (sitesList.length === 1) {
+      currentSiteId = newSite.id;
+      saveCurrentSiteToStorage();
+    }
+  }
+  
+  // Save sites to storage
+  saveSitesToStorage();
+  
+  // Update the site selector
+  populateSiteSelector();
+  
+  // Hide the modal
+  hideModal();
+}
+
+/**
+ * Deletes a site
+ */
+function deleteSite() {
+  const siteId = $('#edit-site-id').val();
+  if (!siteId) return;
+  
+  // Confirm deletion
+  if (!confirm('Are you sure you want to delete this site?')) {
+    return;
+  }
+  
+  // Remove the site from the list
+  sitesList = sitesList.filter(site => site.id !== siteId);
+  
+  // If the deleted site was the current site, clear the current site
+  if (currentSiteId === siteId) {
+    currentSiteId = sitesList.length > 0 ? sitesList[0].id : null;
+    saveCurrentSiteToStorage();
+  }
+  
+  // Save sites to storage
+  saveSitesToStorage();
+  
+  // Update the site selector
+  populateSiteSelector();
+  
+  // Hide the modal
+  hideModal();
+}
+
+/**
+ * Generates a unique ID for a new site
+ * @returns {string} A unique ID
+ */
+function generateUniqueId() {
+  return 'site_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+/**
+ * Gets the currently selected site configuration
+ * @returns {Object|null} The current site configuration or null if no site is selected
+ */
+function getCurrentSite() {
+  if (!currentSiteId) return null;
+  return sitesList.find(site => site.id === currentSiteId) || null;
+}
+
+/**
+ * Checks if a site is selected and shows an error if not
+ * @returns {boolean} True if a site is selected, false otherwise
+ */
+function checkSiteSelected() {
+  if (!currentSiteId) {
+    alert('Please select a site before proceeding.');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Shows the view sites modal with a list of all configured sites
+ */
+function showViewSitesModal() {
+  // Load the latest sites data
+  loadSitesFromStorage();
+  
+  // Populate the sites table
+  populateSitesTable();
+  
+  // Show the modal
+  $('#view-sites-modal').removeClass('hidden');
+}
+
+/**
+ * Hides the view sites modal
+ */
+function hideViewSitesModal() {
+  $('#view-sites-modal').addClass('hidden');
+}
+
+/**
+ * Populates the sites table with all configured sites
+ */
+function populateSitesTable() {
+  const sitesTableBody = $('#sites-list-body');
+  const noSitesMessage = $('#no-sites-message');
+  
+  // Clear the table
+  sitesTableBody.empty();
+  
+  // Show message if no sites are configured
+  if (sitesList.length === 0) {
+    noSitesMessage.removeClass('hidden');
+    return;
+  }
+  
+  // Hide the message if sites exist
+  noSitesMessage.addClass('hidden');
+  
+  // Add each site to the table
+  sitesList.forEach(site => {
+    const row = $('<tr>');
+    
+    // Site name column - make it bold if it's the current site
+    const nameCell = $('<td>');
+    if (site.id === currentSiteId) {
+      nameCell.html(`<strong>${site.name}</strong> <span class="badge" style="background: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px;">Active</span>`);
+    } else {
+      nameCell.text(site.name);
+    }
+    row.append(nameCell);
+    
+    // URL column
+    const urlCell = $('<td>');
+    urlCell.text(site.url);
+    row.append(urlCell);
+    
+    // Actions column
+    const actionsCell = $('<td>');
+    
+    // Edit button
+    const editButton = $('<button>')
+      .addClass('edit-site-btn')
+      .text('Edit')
+      .css({
+        'background': '#007bff',
+        'color': 'white',
+        'border': 'none',
+        'padding': '5px 10px',
+        'border-radius': '4px',
+        'cursor': 'pointer',
+        'margin-right': '5px'
+      })
+      .on('click', function() {
+        hideViewSitesModal();
+        showEditSiteModal(site.id);
+      });
+    
+    // Select button (only show if not the current site)
+    const selectButton = $('<button>')
+      .addClass('select-site-btn')
+      .text('Select')
+      .css({
+        'background': site.id === currentSiteId ? '#6c757d' : '#28a745',
+        'color': 'white',
+        'border': 'none',
+        'padding': '5px 10px',
+        'border-radius': '4px',
+        'cursor': site.id === currentSiteId ? 'not-allowed' : 'pointer'
+      })
+      .prop('disabled', site.id === currentSiteId)
+      .on('click', function() {
+        selectSite(site.id);
+        hideViewSitesModal();
+        // Refresh the page to reflect the site change
+        // Or you could just update the UI as needed
+        populateSiteSelector();
+      });
+    
+    actionsCell.append(editButton);
+    actionsCell.append(selectButton);
+    row.append(actionsCell);
+    
+    sitesTableBody.append(row);
+  });
+}
 
 /**
  * Saves the current field mapping to localStorage
@@ -901,8 +1514,17 @@ function processCSV() {
   }
 
   console.log("wordpress field mapping", completeMapping);
+  const siteDetails = getCurrentSite();
+
+  if (!siteDetails) {
+    alert('No site selected. Please select a site before processing.');
+    return;
+  }
+
+
 
   let data = { 
+    siteDetails,
     startRow, 
     rowCount, 
     priority,
@@ -1000,6 +1622,10 @@ function trackProgress(id) {
 
 // Initialize by showing the upload section first
 showSection('upload');
+// Make sure to call initSites when the page loads
+$(document).ready(function() {
+  initSites();
+});
 </script>
 </body>
 </html>

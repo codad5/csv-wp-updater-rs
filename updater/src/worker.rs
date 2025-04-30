@@ -12,6 +12,16 @@ pub struct NewFileProcessQueue {
     pub wordpress_field_mapping: WordPressFieldMapping,
     #[serde(default)] 
     pub is_new_upload: bool,
+    #[serde(default)]
+    pub site_details: SiteDetails,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Default)]
+pub struct SiteDetails {
+    pub key: String,
+    pub secret: String,
+    pub url: String,
+    pub name: String,
 }
 
 

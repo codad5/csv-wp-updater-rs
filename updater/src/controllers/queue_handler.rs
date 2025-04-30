@@ -1,10 +1,18 @@
-use std::{sync::Arc};
-use amiquip::{Connection, ConsumerMessage, ConsumerOptions, Delivery, QueueDeclareOptions, Result as AmiqpResult};
+use amiquip::{
+    Connection, ConsumerMessage, ConsumerOptions, Delivery, QueueDeclareOptions,
+    Result as AmiqpResult,
+};
 use futures_lite::StreamExt;
+use std::sync::Arc;
 use tokio::{sync::Semaphore, task};
 
-
-use crate::{controllers::woocommerce_processor::process_woocommerce_csv, libs::redis::{get_redis_client, mark_model_as_completed, mark_model_as_failed, update_model_progress}, worker::NewFileProcessQueue};
+use crate::{
+    controllers::woocommerce_processor::process_woocommerce_csv,
+    libs::redis::{
+        get_redis_client, mark_model_as_completed, mark_model_as_failed, update_model_progress,
+    },
+    worker::NewFileProcessQueue,
+};
 
 pub struct RabbitMQFileProcessor {
     rabbit_mq_conn: Connection,
@@ -12,9 +20,7 @@ pub struct RabbitMQFileProcessor {
 
 impl RabbitMQFileProcessor {
     pub fn new(rabbit_mq_conn: Connection) -> Self {
-        Self {
-            rabbit_mq_conn,
-        }
+        Self { rabbit_mq_conn }
     }
 
     pub async fn listen_for_messages(mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +40,8 @@ impl RabbitMQFileProcessor {
         )?;
 
         // Start consuming messages
-        let file_extract_queue_consumer = new_file_extract_queue.consume(ConsumerOptions::default())?;
+        let file_extract_queue_consumer =
+            new_file_extract_queue.consume(ConsumerOptions::default())?;
         println!("Waiting for messages...");
 
         let semaphore = Arc::new(Semaphore::new(5));
@@ -47,13 +54,9 @@ impl RabbitMQFileProcessor {
                         let message = message.unwrap();
                         let permit = semaphore.clone().acquire_owned().await.unwrap();
                         task::spawn(async move {
-                            if let Err(processing_error) = process_woocommerce_csv(
-                                message.clone(),
-                                std::env::var("WOOCOMMERCE_URL").unwrap(),
-                                std::env::var("WOOCOMMERCE_CONSUMER_KEY").unwrap(),
-                                std::env::var("WOOCOMMERCE_CONSUMER_SECRET").unwrap(),
-                            )
-                            .await {
+                            if let Err(processing_error) =
+                                process_woocommerce_csv(message.clone()).await
+                            {
                                 println!("Error processing file: {}", processing_error);
                             } else {
                                 println!("File processed successfully: {}", message.file);
@@ -80,10 +83,7 @@ impl RabbitMQFileProcessor {
         Ok(msg)
     }
 
-
-
     fn close_conn(self) -> AmiqpResult<()> {
         self.rabbit_mq_conn.close()
     }
-
 }

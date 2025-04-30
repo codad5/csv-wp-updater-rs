@@ -868,11 +868,12 @@ async fn fetch_product_variation_by_sku(
 
 
 pub async fn process_woocommerce_csv(
-  file_queue: NewFileProcessQueue,
-  base_url: String,
-  consumer_key: String,
-  consumer_secret: String,
+  file_queue: NewFileProcessQueue
 ) -> Result<(), String> {
+  let file_queue = file_queue.clone();
+  let base_url = file_queue.site_details.url.clone();
+  let consumer_key = file_queue.site_details.key.clone();
+  let consumer_secret = file_queue.site_details.secret.clone();
   println!("Processing CSV: {:?}", file_queue);
   println!("Base URL: {}", base_url);
   println!("Consumer Key: {}", consumer_key);
