@@ -3,6 +3,7 @@ use redis::aio::MultiplexedConnection;
 use redis::AsyncCommands;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -158,6 +159,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
         let file_id_clone = Arc::clone(&_file_id); // Clone the file_id for each task
 
         let parent_task = tokio::spawn(async move {
+            let start = Instant::now();
             // println!("Processing Parent: {}", parent.sku);
             // print parent in yellow with avaliable permit in purple
             let _permit = semaphore_clone.acquire().await.unwrap();
@@ -207,6 +209,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                 let parent_id_clone = Arc::clone(&parent_id); // Clone the parent_id
                 let file_id_clone = Arc::clone(&file_id_clone); // Clone the file_id for each task
                 let child_task = tokio::spawn(async move { 
+                    let start = Instant::now();
                     // println!("Processing Child: {} \nAvailable permits: {}", child.sku, semaphore_clone.available_permits());
                     // print child sku and avaliable permit in purple
                     println!("\x1b[35mProcessing Child: {} \n\x1b[0m", child.sku);
@@ -246,6 +249,8 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                         }
                     };
                     // print available permits
+                    let duration = start.elapsed();
+                    println!("Time taken for child {}: {:?}", child.sku, duration);
                  });
                  child_futures.push(child_task);
             }
@@ -260,6 +265,8 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
                     count += 1;
                 }
             }
+            let duration = start.elapsed();
+            println!("\x1b[97;48;5;42mTime taken for parent {}: {:?}\x1b[0m", parent.sku, duration);
         });
         parent_futures.push(parent_task);
 
