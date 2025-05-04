@@ -176,6 +176,23 @@ impl ProductAttribute {
             options,
         }
     }
+
+    pub fn has_changed(&self, other: &ProductAttribute) -> bool {
+
+        if self.name.to_lowercase() != other.name.to_lowercase() {
+            return true;
+        }
+        if self.visible != other.visible {
+            return true;
+        }
+        if self.options != other.options {
+            return true;
+        }
+        if self.variation != other.variation {
+            return true;
+        }
+        return false;
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -255,7 +272,7 @@ impl WooCommerceProduct {
             id: self.id.to_string(),
             sku: merge_string(&self.sku, &other.sku),
             type_,
-            featured: false,
+            featured: if other.featured { other.featured } else { self.featured },
             regular_price: merge_string(&self.regular_price, &other.regular_price),
             sale_price: merge_option(&self.sale_price, &other.sale_price),
             description: merge_string(&self.description, &other.description),
@@ -484,7 +501,7 @@ impl ProductVariation {
             changes.push("sku".to_string());
         }
 
-        if self.description != other.description {
+        if self.description.to_lowercase() != other.description.to_lowercase() {
             changes.push("description".to_string());
         }
 
