@@ -128,7 +128,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     
     let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let max_concurrency : usize = (total_row_count / 10).clamp(100, 2000).try_into().unwrap();
+    let max_concurrency : usize = (total_row_count / 10).clamp(800, 5000).try_into().unwrap();
     println!("\x1b[38;5;166mSpawning with concurrency limit: {max_concurrency}\x1b[0m");
     let semaphore = Arc::new(Semaphore::new(max_concurrency)); // Limit to 40 concurrent tasks
     let redis_client = self.redis_client.clone();
@@ -790,7 +790,7 @@ async fn fetch_product_variation_by_sku(
         if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
             println!("Product found in Redis: {:?}", product);
             // Check if the SKU matches
-            if product.sku == sku && !product.id.is_empty() {
+            if product.sku == sku && (*new_product == false && !product.id.is_empty()) {
                 return Some(product); // Found in Redis, return it
             }
             println!("SKU mismatch: expected {}, found {}", sku, product.sku);
@@ -877,26 +877,47 @@ async fn fetch_product_variation_by_sku(
 }
 
 
-
-
-
 pub async fn process_woocommerce_csv(
-  file_queue: NewFileProcessQueue
+    file_queue: NewFileProcessQueue
 ) -> Result<(), String> {
-  let file_queue = file_queue.clone();
-  let base_url = &file_queue.site_details.url;
-  let consumer_key = &file_queue.site_details.key;
-  let consumer_secret = &file_queue.site_details.secret;
-  println!("Processing CSV: {:?}", file_queue);
-  println!("Base URL: {}", base_url);
-  println!("Consumer Key: {}", consumer_key);
-  let processor = WooCommerceProcessor::new(base_url.to_owned(), consumer_key.to_owned(), consumer_secret.to_owned()).await;
-  println!("Processor created");
-  println!("Processing CSV file...");
-  match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, &file_queue).await {
-    Ok(_) => Ok(()),
-    Err(e) => Err(format!("Error processing CSV: {}", e)),
-  }
+    let file_queue = file_queue.clone();
+    let base_url = &file_queue.site_details.url;
+    let consumer_key = &file_queue.site_details.key;
+    let consumer_secret = &file_queue.site_details.secret;
+    
+    println!("Processing CSV: {:?}", file_queue);
+    println!("Base URL: {}", base_url);
+    println!("Consumer Key: {}", consumer_key);
+    
+    let processor = WooCommerceProcessor::new(base_url.to_owned(), consumer_key.to_owned(), consumer_secret.to_owned()).await;
+    println!("Processor created");
+    println!("Processing CSV file...");
+    
+    let start = Instant::now();
+    let r = match processor.process_csv(&file_queue.file, &file_queue.wordpress_field_mapping, &file_queue).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Error processing CSV: {}", e)),
+    };
+    
+    let duration = start.elapsed();
+    
+    // Define the background and text color
+    let bg_color = "\x1b[48;5;131m";  // Purple background
+    let text_color = "\x1b[38;5;220m"; // Light Yellow text
+    
+    // Calculate padding based on terminal width
+    let terminal_width = 80; // Adjust this based on your terminal size
+    let message = format!("Total time taken for processing: {:?}", duration);
+    
+    // Padding calculation
+    let padding_size = (terminal_width - message.len()) / 2;
+    let padding = " ".repeat(padding_size);
+    
+    // Print the padded and styled message
+    println!("{}{}{}{}{}", padding, bg_color, text_color, message, "\x1b[0m");
+
+    r
 }
+
 
 
