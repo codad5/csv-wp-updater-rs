@@ -803,16 +803,18 @@ async fn fetch_product_variation_by_sku(
     // Try to get the product from Redis
     let sku = product.sku.clone();
     let id: String = product.id.clone();
-    if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
-        if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
-            println!("Product found in Redis: {:?}", product);
-            // Check if the SKU matches
-            if product.sku == sku && (*new_product == false && !product.id.is_empty()) {
-                return Some(product); // Found in Redis, return it
+    if !*new_product {
+        if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
+                if let Ok(product) = serde_json::from_str::<WooCommerceProduct>(&json) {
+                println!("Product found in Redis: {:?}", product);
+                // Check if the SKU matches
+                if product.sku == sku && (*new_product == false && !product.id.is_empty()) {
+                    return Some(product); // Found in Redis, return it
+                }
+                println!("SKU mismatch: expected {}, found {}", sku, product.sku);
+            } else {
+                println!("Failed to deserialize product from Redis. : {}", json);
             }
-            println!("SKU mismatch: expected {}, found {}", sku, product.sku);
-        } else {
-            println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
     if *new_product {
@@ -852,16 +854,18 @@ async fn fetch_product_variation_by_sku(
     // Try to get the product from Redis
     let sku = product.sku.clone();
     let id = product.id.clone();
-    if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
-        if let Ok(product) = serde_json::from_str::<ProductVariation>(&json) {
-            println!("Product found in Redis: {:?}", product);
-            // Check if the SKU matches
-            if product.sku == sku && !product.id.is_empty() {
-                return Some(product); // Found in Redis, return it
+    if !*new_product {
+        if let Ok(Some(json)) = redis_conn.hget::<_, _, Option<String>>("products", &sku).await {
+            if let Ok(product) = serde_json::from_str::<ProductVariation>(&json) {
+                println!("Product found in Redis: {:?}", product);
+                // Check if the SKU matches
+                if product.sku == sku && !product.id.is_empty() {
+                    return Some(product); // Found in Redis, return it
+                }
+                println!("SKU mismatch: expected {}, found {}", sku, product.sku);
+            } else {
+                println!("Failed to deserialize product from Redis. : {}", json);
             }
-            println!("SKU mismatch: expected {}, found {}", sku, product.sku);
-        } else {
-            println!("Failed to deserialize product from Redis. : {}", json);
         }
     }
     println!("Product not found in Redis, fetching from WooCommerce API... sku : {} ", sku);
