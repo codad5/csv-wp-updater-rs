@@ -8,9 +8,7 @@ use tokio::{sync::Semaphore, task};
 
 use crate::{
     controllers::woocommerce_processor::process_woocommerce_csv,
-    libs::redis::{
-        get_redis_client, mark_model_as_completed, mark_model_as_failed, update_model_progress,
-    },
+    libs::redis::get_redis_client,
     worker::NewFileProcessQueue,
 };
 

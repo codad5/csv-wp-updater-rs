@@ -11,9 +11,9 @@ use tokio::sync::Mutex;
 
 use crate::helper::clean_string;
 use crate::helper::file_helper::get_upload_path;
-use crate::libs::redis::{get_progress, FileProcessingManager};
+use crate::libs::redis::{FileProcessingManager};
 use crate::types::csv_field_woo_mapper::{AttributeMapping, WordPressFieldMapping};
-use crate::types::woocommerce::{woo_build_product, woo_product_builder, ProductAttribute, ProductVariation, WooCommerceProduct, WooProduct};
+use crate::types::woocommerce::{woo_build_product, ProductAttribute, ProductVariation, WooCommerceProduct, WooProduct};
 use crate::worker::{NewFileProcessQueue};
 
 use tokio::sync::Semaphore;
@@ -31,6 +31,22 @@ struct ProcessingProgress {
   new_entries: usize,
 }
 
+impl ProcessingProgress {
+    pub async fn increment_failed_rows(&mut self, file_id: &str, redis_conn: &mut redis::aio::Connection) {
+        self.failed_rows += 1;
+        self.processed_rows += 1;
+        self.sync_to_redis(file_id, redis_conn).await;
+    }
+
+    pub async fn sync_to_redis(&self, file_id: &str, redis_conn: &mut redis::aio::Connection) {
+        if let Ok(json) = serde_json::to_string(&self) {
+            let _: () = redis_conn
+                .hset("file_progress", file_id, json)
+                .await
+                .unwrap_or(());
+        }
+    }
+}
 #[derive(Debug, Clone)]
 struct WooCommerceProcessor {
   woocommerce_client: Arc<Client>,
@@ -200,6 +216,10 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
 
             // Now spawn tasks for the children
             let mut child_futures = Vec::new();
+            if parent_id.is_empty() {
+                println!("No parent ID for product {:?}", new_self_clone);
+                return;
+            }
             let parent_id = Arc::new(parent_id);
             for child in children {
                 let redis_client_clone = redis_client_clone.clone();
@@ -355,9 +375,6 @@ async fn handle_main_product(&self, product: &WooCommerceProduct, redis_conn: &m
             },
             Err(e) => {
                 return Err(format!("Error creating product: {:?}", e).into());
-                // let mut progress = progress_clone.lock().await;
-                // progress.failed_rows += 1;
-                // progress.processed_rows += 1;
             }
         }
     }

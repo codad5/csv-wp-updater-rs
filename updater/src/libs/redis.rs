@@ -4,7 +4,6 @@ use tonic::client;
 use std::env;
 
 static FILE_PROCESSING_MANAGER: OnceCell<FileProcessingManager> = OnceCell::const_new();
-static MODEL_DOWNLOAD_MANAGER: OnceCell<ModelDownloadManager> = OnceCell::const_new();
 static REDIS_CLIENT: OnceCell<Client> = OnceCell::const_new();
 
 #[derive(Debug, PartialEq, Clone)]
@@ -230,94 +229,6 @@ impl FileProcessingManager {
     }
 }
 
-pub struct ModelDownloadManager {
-    redis: RedisProgressManager,
-}
-
-impl ModelDownloadManager {
-    pub async fn instance() -> RedisResult<&'static ModelDownloadManager> {
-        MODEL_DOWNLOAD_MANAGER.get_or_try_init(|| async {
-            Ok(Self {
-                redis: RedisProgressManager::new("model").await?,
-            })
-        }).await
-    }
-
-    pub async fn is_model_downloading(model_name: &str) -> RedisResult<bool> {
-        let status = Self::get_model_status(model_name).await?;
-        Ok(status == ModelStatus::Downloading)
-    }
-
-    pub async fn get_model_status(model_name: &str) -> RedisResult<ModelStatus> {
-        let instance = Self::instance().await?;
-        let status = instance.redis.get_status(model_name).await?;
-        Ok(status.map_or(ModelStatus::Queued, |s| ModelStatus::from_string(&s)))
-    }
-
-    pub async fn start_model_download(model_name: &str, ttl: u64) -> RedisResult<()> {
-        let instance = Self::instance().await?;
-        instance.redis.set_with_ttl(model_name, ModelStatus::Queued, ttl).await?;
-        instance.redis.set_progress(model_name, 0.0).await
-    }
-
-    pub async fn mark_as_downloading(model_name: &str) -> RedisResult<()> {
-        let instance = Self::instance().await?;
-        instance.redis.set_status(model_name, ModelStatus::Downloading).await
-    }
-
-    pub async fn mark_as_completed(model_name: &str) -> RedisResult<()> {
-        let instance = Self::instance().await?;
-        instance.redis.set_status(model_name, ModelStatus::Completed).await?;
-        instance.redis.set_progress(model_name, 100.0).await
-    }
-
-    pub async fn mark_as_failed(model_name: &str) -> RedisResult<()> {
-        let instance = Self::instance().await?;
-        instance.redis.set_status(model_name, ModelStatus::Failed).await
-    }
-
-    pub async fn update_progress(model_name: &str, downloaded_bytes: u64, total_bytes: u64) -> RedisResult<()> {
-        let progress_f32 = if total_bytes == 0 {
-            0.0
-        } else {
-            (downloaded_bytes as f64 * 100.0 / total_bytes as f64) as f32
-        };
-
-        let instance = Self::instance().await?;
-        instance.redis.set_progress(model_name, progress_f32).await?;
-
-        if (progress_f32 - 100.0).abs() < f32::EPSILON {
-            Self::mark_as_completed(model_name).await?;
-        }
-
-        Ok(())
-    }
-
-
-    pub async fn get_progress(model_name: &str) -> RedisResult<f32> {
-        let instance = Self::instance().await?;
-        instance.redis.get_progress(model_name).await
-    }
-
-    pub async fn get_downloading_models() -> RedisResult<Vec<String>> {
-        let instance = Self::instance().await?;
-        let mut con = instance.redis.client.get_multiplexed_async_connection().await?;
-        let pattern = "model:status:*";
-        let keys: Vec<String> = con.keys(pattern).await?;
-        
-        let mut downloading_models = Vec::new();
-        for key in keys {
-            let model_name = key.replace("model:status:", "");
-            let status = Self::get_model_status(&model_name).await?;
-            if status == ModelStatus::Downloading {
-                downloading_models.push(model_name);
-            }
-        }
-        
-        Ok(downloading_models)
-    }
-}
-
 // Backward compatibility functions
 
 pub async fn is_file_in_process(file_id: &str) -> RedisResult<bool> {
@@ -345,59 +256,6 @@ pub async fn mark_as_failed(file_id: &str) -> RedisResult<()> {
     FileProcessingManager::mark_as_failed(file_id).await
 }
 
-pub async fn is_model_downloading(model_name: &str) -> RedisResult<bool> {
-    ModelDownloadManager::is_model_downloading(model_name).await
-}
-
-pub async fn is_model_download_complete(model_name: &str) -> RedisResult<bool> {
-    let status = ModelDownloadManager::get_model_status(model_name).await?;
-    Ok(status == ModelStatus::Completed)
-}
-
-pub async fn get_model_status(model_name: &str) -> RedisResult<ModelStatus> {
-    ModelDownloadManager::get_model_status(model_name).await
-}
-
-pub async fn start_model_download(model_name: &str, ttl: u64) -> RedisResult<()> {
-    ModelDownloadManager::start_model_download(model_name, ttl).await
-}
-
-pub async fn mark_as_downloading(model_name: &str) -> RedisResult<()> {
-    ModelDownloadManager::mark_as_downloading(model_name).await
-}
-
-pub async fn mark_model_as_completed(model_name: &str) -> RedisResult<()> {
-    ModelDownloadManager::mark_as_completed(model_name).await
-}
-
-pub async fn mark_model_as_failed(model_name: &str) -> RedisResult<()> {
-    ModelDownloadManager::mark_as_failed(model_name).await
-}
-
-pub async fn update_model_progress(model_name: &str, downloaded_bytes: u64, total_bytes: u64) -> RedisResult<()> {
-    ModelDownloadManager::update_progress(model_name, downloaded_bytes, total_bytes).await
-}
-
-pub async fn get_model_progress(model_name: &str) -> RedisResult<f32> {
-    ModelDownloadManager::get_progress(model_name).await
-}
-
-pub async fn get_downloading_models(client: &Client) -> RedisResult<Vec<String>> {
-    ModelDownloadManager::get_downloading_models().await
-}
-
 pub async fn mark_progress(file_id: &str, page: u32, total: u32) -> RedisResult<()> {
     FileProcessingManager::mark_progress(file_id, page, total).await
-}
-
-pub async fn get_progress(prefix: &str, id: &str) -> RedisResult<f32> {
-    match prefix {
-        "processing" => {
-            ModelDownloadManager::get_progress(id).await
-        },
-        "model" => {
-            ModelDownloadManager::get_progress(id).await
-        },
-        _ => Ok(0.0)
-    }
 }
