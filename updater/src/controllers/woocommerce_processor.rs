@@ -144,7 +144,7 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
     
     let new_self = Arc::new(self.clone());
     // Create a semaphore to limit concurrent tasks
-    let max_concurrency : usize = (total_row_count / 10).clamp(800, 5000).try_into().unwrap();
+    let max_concurrency : usize = (total_row_count / 10).clamp(100, 800).try_into().unwrap();
     println!("\x1b[38;5;166mSpawning with concurrency limit: {max_concurrency}\x1b[0m");
     let semaphore = Arc::new(Semaphore::new(max_concurrency)); // Limit to 40 concurrent tasks
     let redis_client = self.redis_client.clone();
@@ -224,11 +224,12 @@ async fn process_csv(self, file_path: &str, field_mapping: &WordPressFieldMappin
             for child in children {
                 let redis_client_clone = redis_client_clone.clone();
                 let progress_clone = Arc::clone(&progress_clone);
-                // let semaphore_clone = Arc::clone(&semaphore_clone);  // Clone from the already cloned version
+                let semaphore_clone = Arc::clone(&semaphore_clone);  // Clone from the already cloned version
                 let new_self_clone = Arc::clone(&new_self_clone);    // Clone from the already cloned version
                 let parent_id_clone = Arc::clone(&parent_id); // Clone the parent_id
                 let file_id_clone = Arc::clone(&file_id_clone); // Clone the file_id for each task
                 let child_task = tokio::spawn(async move { 
+                    let _permit = semaphore_clone.acquire().await.unwrap();
                     let start = Instant::now();
                     // println!("Processing Child: {} \nAvailable permits: {}", child.sku, semaphore_clone.available_permits());
                     // print child sku and avaliable permit in purple
