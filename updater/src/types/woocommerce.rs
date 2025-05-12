@@ -666,34 +666,34 @@ pub fn woo_product_builder(
             key: "fifu_list_url".to_owned(),
             value: serde_json::Value::String(featured_image.clone()),
         });
-        images.push(ProductImage {
-            src: featured_image.clone(),
-            name: if name.is_empty() {
-                None
-            } else {
-                Some(name.clone())
-            },
-            alt: if name.is_empty() {
-                None
-            } else {
-                Some(name.clone())
-            },
-        });
+        // images.push(ProductImage {
+        //     src: featured_image.clone(),
+        //     name: if name.is_empty() {
+        //         None
+        //     } else {
+        //         Some(name.clone())
+        //     },
+        //     alt: if name.is_empty() {
+        //         None
+        //     } else {
+        //         Some(name.clone())
+        //     },
+        // });
     }
 
-    images.extend(gallery_images.iter().map(|img| ProductImage {
-        src: img.trim().to_string(),
-        name: if name.is_empty() {
-            None
-        } else {
-            Some(name.clone())
-        },
-        alt: if name.is_empty() {
-            None
-        } else {
-            Some(name.clone())
-        },
-    }));
+    // images.extend(gallery_images.iter().map(|img| ProductImage {
+    //     src: img.trim().to_string(),
+    //     name: if name.is_empty() {
+    //         None
+    //     } else {
+    //         Some(name.clone())
+    //     },
+    //     alt: if name.is_empty() {
+    //         None
+    //     } else {
+    //         Some(name.clone())
+    //     },
+    // }));
 
     // Handle attributes
     let material = get_value("material");
@@ -936,7 +936,7 @@ pub fn woo_product_variation_builder(
         weight: weight_option,
         shipping_class: shipping_class_option,
         dimensions,
-        image: images.first().cloned(),
+        image: None,
         meta_data,
     })
 }
