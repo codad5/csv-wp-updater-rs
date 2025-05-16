@@ -644,14 +644,14 @@ pub fn woo_product_builder(
     // Handle images
     let main_image = get_value("images");
     let featured_image = get_value("featured_image");
-    let gallery_images: Vec<_> = if !main_image.is_empty() {
+    let mut gallery_images: Vec<_> = vec![featured_image.clone()];
+
+    gallery_images.extend(
         main_image
             .split('|')
             .filter(|img| !img.trim().is_empty())
-            .collect()
-    } else {
-        vec![]
-    };
+            .map(|img| img.trim().to_string()),
+    );
 
     println!(
         "\x1b[38;5;45mImages for Product ID: {}, SKU: {}: {:?}\x1b[0m",
@@ -662,9 +662,15 @@ pub fn woo_product_builder(
     let mut meta_data = vec![];
 
     if !featured_image.is_empty() {
+        let fifu_list_url = gallery_images
+            .iter()
+            .filter(|img| !img.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("|");
         meta_data.push(KeyValue {
             key: "fifu_list_url".to_owned(),
-            value: serde_json::Value::String(featured_image.clone()),
+            value: serde_json::Value::String(fifu_list_url),
         });
         // images.push(ProductImage {
         //     src: featured_image.clone(),
@@ -723,16 +729,36 @@ pub fn woo_product_builder(
             options: vec![brand.to_string()],
         });
     }
+
+    // attribute seperated by comma
     for (key, value) in attribute_map.iter() {
         if !value.column.is_empty() {
             attributes.push(ProductAttribute {
                 name: key.clone(),
                 position: None,
-                visible: Some(value.variable),
-                variation: Some(type_ != "simple"),
+                visible: Some(true),
+                variation: Some(value.variable),
                 options: value
                     .column
                     .split(',')
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                    .collect(),
+            });
+        }
+    }
+    
+    // attribute seperated by pipe
+    for (key, value) in attribute_map.iter() {
+        if !value.column.is_empty() {
+            attributes.push(ProductAttribute {
+                name: key.clone(),
+                position: None,
+                visible: Some(true),
+                variation: Some(value.variable),
+                options: value
+                    .column
+                    .split('|')
                     .map(|v| v.trim().to_string())
                     .filter(|v| !v.is_empty())
                     .collect(),
@@ -834,39 +860,45 @@ pub fn woo_product_variation_builder(
     let main_image = get_value("images");
     let featured_image = get_value("featured_image");
 
-    let gallery_images: Vec<_> = if !main_image.is_empty() {
+    let mut gallery_images: Vec<_> = vec![featured_image.clone()];
+
+    gallery_images.extend(
         main_image
             .split('|')
             .filter(|img| !img.trim().is_empty())
-            .collect()
-    } else {
-        vec![]
-    };
+            .map(|img| img.trim().to_string()),
+    );
 
     println!(
         "\x1b[38;5;45mImages for ProductVariation ID: {}, SKU: {}: {:?}\x1b[0m",
         id, sku, gallery_images
     );
-    let mut images = vec![];
+    // let mut images = vec![];
     let mut meta_data = vec![];
 
     if !featured_image.is_empty() {
+        let fifu_list_url = gallery_images
+            .iter()
+            .filter(|img| !img.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("|");
         meta_data.push(KeyValue {
             key: "fifu_list_url".to_owned(),
-            value: serde_json::Value::String(featured_image.clone()),
+            value: serde_json::Value::String(fifu_list_url),
         });
-        images.push(ProductImage {
-            src: featured_image.clone(),
-            name: None,
-            alt: None,
-        });
+        // images.push(ProductImage {
+        //     src: featured_image.clone(),
+        //     name: None,
+        //     alt: None,
+        // });
     }
 
-    images.extend(gallery_images.iter().map(|img| ProductImage {
-        src: img.trim().to_string(),
-        name: None,
-        alt: None,
-    }));
+    // images.extend(gallery_images.iter().map(|img| ProductImage {
+    //     src: img.trim().to_string(),
+    //     name: None,
+    //     alt: None,
+    // }));
 
     for (key, value) in attribute_map.iter() {
         if !value.column.is_empty() {
@@ -913,8 +945,8 @@ pub fn woo_product_variation_builder(
     // Handle dimensions using the build_product_dimensions function
     let dimensions = build_product_dimensions(product);
     println!(
-        "\x1b[38;5;231mImages for Product ID: {}, SKU: {}: {:?}\x1b[0m",
-        id, sku, images
+        "\x1b[38;5;231mImages for Product ID: {}, SKU: {}: \x1b[0m",
+        id, sku
     );
     Ok(ProductVariation {
         id,
