@@ -586,6 +586,7 @@ pub fn woo_product_builder(
     let mut type_ = get_value("type");
     let name = get_value("name");
     let description = get_value("description");
+    let ean = get_value("global_unique_id");
     let short_description = get_value("short_description");
     let regular_price = get_value("regular_price");
     let sale_price = get_value("sale_price");
@@ -687,6 +688,10 @@ pub fn woo_product_builder(
         // });
     }
 
+    if !ean.is_empty() {
+        meta_data.push(KeyValue { key: "_alg_ean".to_owned(), value: serde_json::Value::String(ean) });
+    }
+ 
     // images.extend(gallery_images.iter().map(|img| ProductImage {
     //     src: img.trim().to_string(),
     //     name: if name.is_empty() {
