@@ -689,7 +689,7 @@ pub fn woo_product_builder(
     }
 
     if !ean.is_empty() {
-        meta_data.push(KeyValue { key: "_alg_ean".to_owned(), value: serde_json::Value::String(ean) });
+        meta_data.push(KeyValue { key: "_ean".to_owned(), value: serde_json::Value::String(ean) });
     }
  
     // images.extend(gallery_images.iter().map(|img| ProductImage {
