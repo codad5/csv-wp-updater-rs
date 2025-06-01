@@ -709,6 +709,7 @@ pub fn woo_product_builder(
     // Handle attributes
     let material = get_value("material");
     let brand = get_value("brand");
+    let brand_ids = get_value("brand_ids");
     let mut attributes = vec![];
 
     if !material.is_empty() {
@@ -724,15 +725,23 @@ pub fn woo_product_builder(
                 .collect(),
         });
     }
+    let mut brands_array = vec![];
 
     if !brand.is_empty() {
+        brands_array.push(brand.to_string());
+    }
+    if !brand_ids.is_empty() {
+        brands_array.push(brand_ids.to_string());
+    }
+
+    if !brands_array.is_empty() {
         attributes.push(ProductAttribute {
             name: "Brand".to_string(),
             position: Some(2),
             visible: Some(true),
             variation: Some(false),
-            options: vec![brand.to_string()],
-        });
+            options: brands_array,
+        });   
     }
 
     // attribute seperated by comma
