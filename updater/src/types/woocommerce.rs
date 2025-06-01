@@ -688,10 +688,11 @@ pub fn woo_product_builder(
         // });
     }
 
+    println!("Fetching EAN - {}", ean);
     if !ean.is_empty() {
         meta_data.push(KeyValue { key: "_ean".to_owned(), value: serde_json::Value::String(ean) });
     }
- 
+
     // images.extend(gallery_images.iter().map(|img| ProductImage {
     //     src: img.trim().to_string(),
     //     name: if name.is_empty() {
