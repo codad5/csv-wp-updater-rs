@@ -868,6 +868,7 @@ pub fn woo_product_variation_builder(
     let regular_price = get_value("regular_price");
     let sale_price = get_value("sale_price");
     let parent = get_value("parent_id");
+    let ean = get_value("global_unique_id");
 
     // Handle attributes for variations
     let mut attributes = Vec::new();
@@ -963,6 +964,12 @@ pub fn woo_product_variation_builder(
         "\x1b[38;5;231mImages for Product ID: {}, SKU: {}: \x1b[0m",
         id, sku
     );
+
+    println!("Fetching EAN - {}", ean);
+    if !ean.is_empty() {
+        meta_data.push(KeyValue { key: "_ean".to_owned(), value: serde_json::Value::String(ean) });
+    }
+
     Ok(ProductVariation {
         id,
         sku,
