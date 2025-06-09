@@ -96,6 +96,70 @@ impl WooCommerceProcessor {
         field_mapping: &WordPressFieldMapping,
         setting: &NewFileProcessQueue,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        //IMPORTANT DOCs: HOW this works
+        //TODO: HOW this works
+        //IMPORTANT DOCS: HOW CSV PROCESSING WORKS
+        //
+        // This function processes CSV files containing WooCommerce product data in a highly concurrent manner.
+        // The workflow follows these key steps:
+        //
+        // 1. FILE SETUP & VALIDATION:
+        //    - Reads CSV from the specified file path
+        //    - Counts total rows and validates processing parameters (start_row, row_count)
+        //    - Limits processing to maximum 40,000 rows per batch for performance
+        //    - Creates file_id from filename (without extension) for tracking progress
+        //
+        // 2. FIELD MAPPING PREPARATION:
+        //    - Uses WordPressFieldMapping to create reverse mappings for CSV headers
+        //    - Cleans header names and maps them to internal product fields
+        //    - Handles both regular fields and attribute mappings
+        //
+        // 3. PRODUCT GROUPING:
+        //    - Calls `group_products_by_parent()` to organize CSV rows into parent-child relationships
+        //    - Groups variations under their parent products: Vec<(parent_product, Vec<child_variations>)>
+        //    - This allows processing entire product families together
+        //
+        // 4. CONCURRENT PROCESSING:
+        //    - Uses semaphore-based concurrency control (100-300 concurrent tasks based on file size)
+        //    - For each product group:
+        //      a) Spawns a parent task that processes the main product
+        //      b) Within each parent task, spawns child tasks for all variations
+        //      c) Uses Redis for caching and duplicate detection
+        //
+        // 5. DUPLICATE DETECTION VIA SHA HASHING:
+        //    - Before processing any product, checks Redis for existing data using SHA comparison
+        //    - WHAT WE STORE IN SHA:
+        //      * Key: "products:sha:{sku}" 
+        //      * Value: SHA hash of the ORIGINAL CSV product data (before API processing)
+        //    - COMPARISON PROCESS:
+        //      * Takes current CSV row data, serializes to JSON, calculates SHA hash
+        //      * Compares with stored SHA hash from previous processing
+        //      * If hashes match → product hasn't changed, skip API call and reuse existing ID
+        //      * If hashes differ → product data has changed, process normally
+        //    - PURPOSE: Avoids redundant API calls to WooCommerce when CSV data hasn't changed
+        //
+        // 6. REDIS CACHING STRATEGY:
+        //    - "products:{sku}" → Complete processed product data (after API response)
+        //    - "products:sha:{sku}" → SHA hash of original CSV data (for change detection)
+        //    - "products:id:{sku}" → Product ID from WooCommerce API (for quick lookups)
+        //
+        // 7. ERROR HANDLING & PROGRESS TRACKING:
+        //    - FileProcessingManager tracks overall progress and handles failures
+        //    - Each task updates progress counters (successful_rows, failed_rows, processed_rows)
+        //    - Redis connection errors are handled gracefully with progress updates
+        //    - Failed tasks don't block other concurrent processing
+        //
+        // 8. PROCESSING FLOW:
+        //    - Parent products are created/updated first via `handle_main_product()`
+        //    - Child variations are then processed via `handle_variation_product()` using parent_id
+        //    - All operations are async and concurrent within semaphore limits
+        //    - Progress is tracked and reported throughout the process
+        //
+        // PERFORMANCE CONSIDERATIONS:
+        // - Concurrency is dynamically set based on file size (total_rows/10, clamped 100-300)
+        // - SHA-based caching dramatically reduces API calls for unchanged data
+        // - Semaphore prevents overwhelming the WooCommerce API or Redis
+        // - Batch processing with configurable start_row and row_count for large files
         // File id is file path without ext
         let start_row: u32 = setting.start_row;
         let no_of_rows: u32 = setting.row_count;
