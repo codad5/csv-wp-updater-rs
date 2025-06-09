@@ -1,3 +1,5 @@
+use sha2::{Sha256, Digest};
+
 pub mod file_helper;
 pub mod csv_helper;
 
@@ -12,4 +14,11 @@ pub fn clean_string(s: &str) -> String {
         .filter(|&c| c > '\u{001F}' || c == '\t' || c == '\n' || c == '\r')
         .collect::<String>();
     s.trim().to_string()
+}
+
+
+pub fn calculate_hash(content: String) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    format!("{:x}", hasher.finalize())  // Return as a hex string
 }
