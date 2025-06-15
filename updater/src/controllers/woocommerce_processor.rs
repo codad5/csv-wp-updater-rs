@@ -20,6 +20,21 @@ use crate::worker::NewFileProcessQueue;
 
 use tokio::sync::Semaphore;
 
+
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct BatchProductRequest {
+    pub create: Vec<WooCommerceProduct>,
+    pub update: Vec<WooCommerceProduct>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct BatchProductResponse {
+    pub create: Vec<WooCommerceProduct>,
+    pub update: Vec<WooCommerceProduct>,
+}
+
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ProcessingProgress {
     total_rows: usize,
@@ -94,7 +109,7 @@ impl WooCommerceProcessor {
         self,
         file_path: &str,
         field_mapping: &WordPressFieldMapping,
-        setting: &NewFileProcessQueue,
+        setting: &NewFileProcessQueue,  
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         //IMPORTANT DOCs: HOW this works
         //TODO: HOW this works
@@ -255,8 +270,37 @@ impl WooCommerceProcessor {
             "Number of parents/main products: {}",
             grouped_products.len()
         );
+        let (products_with_children, products_without_children): (Vec<_>, Vec<_>) = grouped_products
+        .into_iter()
+        .partition(|(_, children)| !children.is_empty());
+        
+        let standalone_products: Vec<WooCommerceProduct> = products_without_children
+        .into_iter()
+        .map(|(parent, _)| parent)
+        .collect();
+
+        if !standalone_products.is_empty() {
+            let standalone_product_len = standalone_products.len();
+            let batch_tuple = if new_product {
+                (standalone_products, Vec::new()) // (create, update)
+            } else {
+                (Vec::new(), standalone_products) // (create, update)
+            };
+            
+            if let Err(e) = self.batch_update_products(batch_tuple).await {
+                println!("Batch processing failed: {:?}", e);
+            }
+        
+            FileProcessingManager::increment_progress(
+                file_id.as_str(),
+                standalone_product_len as u32,
+            )
+            .await
+            .unwrap_or(());
+            
+        }
         let mut parent_futures = Vec::new();
-        for (parent, children) in grouped_products {
+        for (parent, children) in products_with_children {
             println!(
                 "\x1b[33mNumber of children for parent {}: {}\x1b[0m",
                 parent.sku,
@@ -974,6 +1018,37 @@ impl WooCommerceProcessor {
         let products: WooCommerceProduct = serde_json::from_str(&body)?; // Parse JSON manually
 
         Ok(products)
+    }
+
+    async fn batch_update_products(
+        &self,
+        products: (Vec<WooCommerceProduct>, Vec<WooCommerceProduct>),
+    ) -> Result<BatchProductResponse, Box<dyn std::error::Error>> {
+        let (create_products, update_products) = products;
+        
+        let batch_request = BatchProductRequest {
+            create: create_products,
+            update: update_products,
+        };
+        
+        let json_body = serde_json::to_string(&batch_request)?;
+        println!("Batch update JSON body: {}", json_body);
+        
+        let res = self
+            .woocommerce_client
+            .post(&format!("{}/wp-json/wc/v3/products/batch", self.base_url))
+            .basic_auth(&self.consumer_key, Some(&self.consumer_secret))
+            .body(json_body)
+            .header("Content-Type", "application/json")
+            .send()
+            .await?;
+        
+        let body = res.text().await?;
+        println!("Response body from batch_update_products: {}", body);
+        
+        let response: BatchProductResponse = serde_json::from_str(&body)?;
+        
+        Ok(response)
     }
 
     async fn create_product_variation(
