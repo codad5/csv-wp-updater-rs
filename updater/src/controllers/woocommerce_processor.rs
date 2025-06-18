@@ -281,23 +281,101 @@ impl WooCommerceProcessor {
 
         if !standalone_products.is_empty() {
             let standalone_product_len = standalone_products.len();
-            let batch_tuple = if new_product {
-                (standalone_products, Vec::new()) // (create, update)
-            } else {
-                (Vec::new(), standalone_products) // (create, update)
-            };
+            println!("Processing {} standalone products in batches", standalone_product_len);
             
-            if let Err(e) = self.batch_update_products(batch_tuple).await {
-                println!("Batch processing failed: {:?}", e);
+            // Define batch size (adjust as needed)
+            let batch_size = 50; // or whatever size works best for your API
+            let batches: Vec<Vec<WooCommerceProduct>> = standalone_products
+                .chunks(batch_size)
+                .map(|chunk| chunk.to_vec())
+                .collect();
+            
+            println!("Split into {} batches of up to {} products each", batches.len(), batch_size);
+            
+            // Create futures for each batch
+            let mut batch_futures = Vec::new();
+            
+            for (batch_index, batch) in batches.into_iter().enumerate() {
+                let batch_len = batch.len();
+                let self_clone = Arc::clone(&new_self);
+                let file_id_clone = file_id.clone();
+                let semaphore_clone = Arc::clone(&semaphore);
+                
+                let batch_task = tokio::spawn(async move {
+                    // Acquire semaphore permit for this batch
+                    let _permit = semaphore_clone.acquire().await.unwrap();
+                    
+                    println!("Processing batch {} with {} products", batch_index + 1, batch_len);
+                    
+                    let batch_tuple = if new_product {
+                        (batch, Vec::new()) // (create, update)
+                    } else {
+                        (Vec::new(), batch) // (create, update)
+                    };
+                    
+                    match self_clone.batch_update_products(batch_tuple).await {
+                        Ok(_) => {
+                            println!("✅ Batch {} processed successfully ({} products)", batch_index + 1, batch_len);
+                            
+                            // Update progress for this batch
+                            FileProcessingManager::increment_progress(
+                                &file_id_clone,
+                                batch_len as u32,
+                            )
+                            .await
+                            .unwrap_or_else(|e| println!("Failed to update progress for batch {}: {:?}", batch_index + 1, e));
+                            
+                            Ok(batch_len)
+                        }
+                        Err(e) => {
+                            println!("❌ Batch {} processing failed: {:?}", batch_index + 1, e);
+                            
+                            // Still update progress even for failed batches (you might want to handle this differently)
+                            FileProcessingManager::increment_progress(
+                                &file_id_clone,
+                                batch_len as u32,
+                            )
+                            .await
+                            .unwrap_or_else(|e| println!("Failed to update progress for failed batch {}: {:?}", batch_index + 1, e));
+                            
+                            // Convert error to String to make it Send
+                            Err(format!("Batch processing error: {:?}", e))
+                        }
+                    }
+                });
+                
+                batch_futures.push(batch_task);
             }
-        
-            FileProcessingManager::increment_progress(
-                file_id.as_str(),
-                standalone_product_len as u32,
-            )
-            .await
-            .unwrap_or(());
             
+            // Wait for all batch tasks to complete
+            let mut total_processed = 0;
+            let mut total_failed = 0;
+            
+            for (batch_index, batch_task) in batch_futures.into_iter().enumerate() {
+                match batch_task.await {
+                    Ok(Ok(processed_count)) => {
+                        total_processed += processed_count;
+                        println!("Batch {} completed: {} products processed", batch_index + 1, processed_count);
+                    }
+                    Ok(Err(error_msg)) => {
+                        // Batch processing failed, but we already logged it above
+                        println!("Batch {} failed with error: {}", batch_index + 1, error_msg);
+                        total_failed += 1;
+                    }
+                    Err(join_error) => {
+                        println!("Batch {} task failed to complete: {:?}", batch_index + 1, join_error);
+                        total_failed += 1;
+                    }
+                }
+            }
+            
+            println!("🎉 All standalone product batches completed!");
+            println!("   Total processed: {}", total_processed);
+            println!("   Total failed batches: {}", total_failed);
+            
+            // Final progress update for standalone products (optional, since we already updated per batch)
+            // This ensures the progress bar reflects the completion of all standalone products
+            // FileProcessingManager::mark_batch_complete(&file_id, total_processed as u32).await.unwrap_or(());
         }
         let mut parent_futures = Vec::new();
         for (parent, children) in products_with_children {
@@ -1023,7 +1101,7 @@ impl WooCommerceProcessor {
     async fn batch_update_products(
         &self,
         products: (Vec<WooCommerceProduct>, Vec<WooCommerceProduct>),
-    ) -> Result<BatchProductResponse, Box<dyn std::error::Error>> {
+    ) -> Result<BatchProductResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (create_products, update_products) = products;
         
         let batch_request = BatchProductRequest {
