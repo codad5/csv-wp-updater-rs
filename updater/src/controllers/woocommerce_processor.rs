@@ -273,7 +273,18 @@ impl WooCommerceProcessor {
         let (products_with_children, products_without_children): (Vec<_>, Vec<_>) = grouped_products
         .into_iter()
         .partition(|(_, children)| !children.is_empty());
-        
+
+        print!("\x1B[2J\x1B[1;1H"); // Clear the console
+
+        println!(
+            "No Products without children (standalone products): {}",
+            products_without_children.len()
+        );
+        println!(
+            "Number of standalone products: {}",
+            products_without_children.len()
+        );
+
         let standalone_products: Vec<WooCommerceProduct> = products_without_children
         .into_iter()
         .map(|(parent, _)| parent)
@@ -375,7 +386,7 @@ impl WooCommerceProcessor {
             
             // Final progress update for standalone products (optional, since we already updated per batch)
             // This ensures the progress bar reflects the completion of all standalone products
-            // FileProcessingManager::mark_batch_complete(&file_id, total_processed as u32).await.unwrap_or(());
+            // FileProcessingManager::increment_progress(&file_id, total_processed as u32).await.unwrap_or(());
         }
         let mut parent_futures = Vec::new();
         for (parent, children) in products_with_children {
