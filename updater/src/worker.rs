@@ -33,6 +33,7 @@ pub async fn run_worker() -> Result<(), amiquip::Error> {
     let mqservice = RabbitMQFileProcessor::new(connection);
     if let Err(e) = mqservice.listen_for_messages().await {
         println!("Error listening for messages: {}", e);
-    }
+    };
+    println!("Worker finished processing messages.");
     Ok(())
 }

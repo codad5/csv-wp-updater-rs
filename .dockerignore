@@ -1,0 +1,94 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Environment files
+.env
+.env.*
+!.env.sample
+
+# Documentation
+README.md
+*.md
+docs/
+documentation/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Node.js (for api service)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+coverage/
+.nyc_output
+
+# Rust (for updater service)
+target/
+**/*.rs.bk
+Cargo.lock
+# Keep Cargo.toml as it's needed for build
+
+# Build artifacts and cache
+dist/
+build/
+*.log
+.cache/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+logs/
+*.log
+
+# Shared storage (runtime data, not needed for build)
+shared_storage/
+upload/
+processed/
+
+# Docker files (if building from subdirectories)
+docker-compose*.yml
+Dockerfile.*
+
+# Development and testing
+test/
+tests/
+spec/
+__tests__/
+*.test.*
+*.spec.*
+.coverage
+jest.config.*
+.eslintrc.*
+.prettier*
+nodemon.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Lock files (keep package-lock.json and Cargo.lock for reproducible builds)
+# yarn.lock  # uncomment if you use npm instead of yarn

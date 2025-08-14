@@ -1,0 +1,12 @@
+# Rust specific
+target/
+**/*.rs.bk
+
+# Node.js files (not needed for Rust build)
+node_modules/
+package*.json
+*.js
+*.ts
+
+# Development files
+.cargo/

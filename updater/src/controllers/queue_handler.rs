@@ -2,13 +2,11 @@ use amiquip::{
     Connection, ConsumerMessage, ConsumerOptions, Delivery, QueueDeclareOptions,
     Result as AmiqpResult,
 };
-use futures_lite::StreamExt;
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task};
 
 use crate::{
-    controllers::woocommerce_processor::process_woocommerce_csv,
-    libs::redis::get_redis_client,
+    controllers::woocommerce_processor::process_woocommerce_csv, libs::redis::get_redis_client,
     worker::NewFileProcessQueue,
 };
 
@@ -22,13 +20,8 @@ impl RabbitMQFileProcessor {
     }
 
     pub async fn listen_for_messages(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let redis_client = Arc::new(get_redis_client().await.unwrap());
         println!("Connected to RabbitMQ");
-
-        // Open a channel for the main process
         let channel = self.rabbit_mq_conn.open_channel(None)?;
-
-        // Declare the queue
         let new_file_extract_queue = channel.queue_declare(
             "CSV_UPLOAD",
             QueueDeclareOptions {

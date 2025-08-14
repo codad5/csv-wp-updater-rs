@@ -1,0 +1,24 @@
+# Node.js specific
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+coverage/
+.nyc_output
+
+# Rust files (not needed for Node.js build)
+target/
+*.rs
+Cargo.toml
+Cargo.lock
+
+# Development files
+nodemon.json
+.eslintrc.*
+.prettier*
+jest.config.*
+
+# Runtime data
+shared_storage/
+logs/
