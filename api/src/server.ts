@@ -191,6 +191,9 @@ app.post("/process/:id", async (req: Request, res: Response) => {
       rowCount = 99999,
       is_new_upload = false, // Default to false if not provided
       wordpress_field_mapping,
+      batch_delay_minutes,
+      batch_size,
+      dry_run = false
     } = req.body as ProcessOptions;
 
     const fileName = `${id}.csv`;
@@ -232,6 +235,9 @@ app.post("/process/:id", async (req: Request, res: Response) => {
           priority,
           wordpress_field_mapping: cleanedMapping,
           siteDetails: { ...siteDetails, secret: "***" },
+          batch_delay_minutes,
+          batch_size,
+          dry_run
         },
         status: "processing",
         progress: progressResponse.progress,
@@ -249,12 +255,14 @@ app.post("/process/:id", async (req: Request, res: Response) => {
       row_count: rowCount,
       wordpress_field_mapping: cleanedMapping,
       is_new_upload,
+      batch_delay_minutes,
+      batch_size,
+      dry_run
     });
 
     if (!d) {
       throw new Error("Failed to send file to queue");
     }
-
 
     ResponseHelper.success<ProcessResponse>({
       id,
@@ -264,6 +272,12 @@ app.post("/process/:id", async (req: Request, res: Response) => {
         priority,
         wordpress_field_mapping: cleanedMapping,
         siteDetails: { ...siteDetails, secret: "***" },
+        batch_delay_minutes,
+        batch_size,
+        is_new_upload,
+        rowCount,
+        startRow,
+        dry_run
       },
       status: "queued",
       progress: 0,

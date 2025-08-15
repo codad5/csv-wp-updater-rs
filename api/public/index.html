@@ -171,6 +171,18 @@
               <option value="2">High</option>
             </select>
           </div>
+          <div class="input-group">
+            <label>Batch Size:</label>
+            <input type="number" id="batchSize" value="50" min="1" />
+          </div>
+          <div class="input-group">
+            <label>Delay Between Batches (minutes):</label>
+            <input type="number" id="batchDelay" value="5" min="1" />
+          </div>
+          <div class="input-group">
+            <label>Dry Run:</label>
+            <input type="checkbox" id="dryRun" />
+          </div>
 
           <button onclick="goToMapping()">Back to Mapping</button>
           <button onclick="processCSV()">Process CSV</button>

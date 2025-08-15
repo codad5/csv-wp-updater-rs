@@ -214,6 +214,11 @@ pub struct ProductDimension {
 }
 
 impl WooCommerceProduct {
+
+    /// Sets the product ID to a new value.
+    pub fn set_id(&mut self, new_id: impl Into<String>) {
+        self.id = new_id.into();
+    }
     /// Merges two WooCommerceProduct instances, with values from `other` taking precedence
     /// over values from `self` when both exist and are not empty.
     ///
@@ -418,6 +423,10 @@ impl WooCommerceProduct {
 }
 
 impl ProductVariation {
+
+    pub fn set_id(&mut self, new_id: impl Into<String>) {
+        self.id = new_id.into();
+    }
     /// Merges two ProductVariation instances, with values from `other` taking precedence
     /// over values from `self` when both exist and are not empty.
     ///

@@ -127,6 +127,9 @@ struct WooCommerceProcessor {
     consumer_key: String,
     consumer_secret: String,
     result: Arc<RwLock<ProcessingResult>>,
+    batch_size: usize,
+    batch_delay_minutes: u32,
+    dry_run: bool,
 }
 
 impl WooCommerceProcessor {
@@ -137,6 +140,9 @@ impl WooCommerceProcessor {
         file_path: String,
         file_id: String,
         total_rows: usize,
+        batch_size: usize,
+        batch_delay_minutes: u32,
+        dry_run: bool,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let woocommerce_client = Client::builder()
             .danger_accept_invalid_certs(true)
@@ -168,6 +174,9 @@ impl WooCommerceProcessor {
             consumer_key,
             consumer_secret,
             result: Arc::new(RwLock::new(processing_result)), // RwLock instead of Mutex
+            batch_size,
+            batch_delay_minutes,
+            dry_run,
         })
     }
 
@@ -498,9 +507,9 @@ impl WooCommerceProcessor {
             .map(|(parent, _)| parent)
             .collect();
 
-        let batch_size = 50;
+        // let batch_size = 50;
         let batches: Vec<Vec<WooCommerceProduct>> = standalone_products
-            .chunks(batch_size)
+            .chunks(self.batch_size)
             .map(|chunk| chunk.to_vec())
             .collect();
 
@@ -515,6 +524,20 @@ impl WooCommerceProcessor {
         );
 
         for (batch_index, batch) in batches.clone().into_iter().enumerate() {
+            // Add delay before processing (except for first batch)
+            if batch_index > 0 && self.batch_delay_minutes > 0 {
+                println!(
+                    "{}",
+                    format!(
+                        "⏳ Waiting {} minutes before processing batch {}...",
+                        self.batch_delay_minutes,
+                        batch_index + 1
+                    )
+                    .yellow()
+                );
+                tokio::time::sleep(Duration::from_secs(self.batch_delay_minutes as u64 * 60)).await;
+            }
+
             let batch_len = batch.len();
 
             // Update progress for this batch
@@ -565,7 +588,7 @@ impl WooCommerceProcessor {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let total_products = products_with_children.len();
         let semaphore = Arc::new(Semaphore::new(100));
-        let mut parent_futures = Vec::new();
+        let mut parent_futures: Vec<(usize, tokio::task::JoinHandle<()>)> = Vec::new();
 
         println!(
             "{}",
@@ -574,8 +597,8 @@ impl WooCommerceProcessor {
 
         for (index, (parent, children)) in products_with_children.into_iter().enumerate() {
             let current_index = index + 1;
-
-            // Update progress
+            let total_products_in_group = 1 + children.len(); // parent + children count
+                                                              // Update progress
             self.start_processing_product(parent.sku.clone(), current_index, total_products)
                 .await?;
 
@@ -774,16 +797,41 @@ impl WooCommerceProcessor {
                 }
             });
 
-            parent_futures.push(parent_task);
+            parent_futures.push((total_products_in_group, parent_task));
         }
 
+        let mut current_batch_product_count = 0;
+        let batch_size = self.batch_size as usize;
+        let delay_minutes = self.batch_delay_minutes;
         // Wait for all tasks to complete
-        for task in parent_futures {
+        for (product_count_in_group, task) in parent_futures {
+            // Check if adding this group would exceed batch size
+            if current_batch_product_count + product_count_in_group > batch_size
+                && current_batch_product_count > 0
+            {
+                // Delay before processing next batch
+                if delay_minutes > 0 {
+                    println!(
+                        "{}",
+                        format!(
+                    "⏳ Batch complete ({} products). Waiting {} minutes before next batch...",
+                    current_batch_product_count, delay_minutes
+                )
+                        .yellow()
+                    );
+                    tokio::time::sleep(Duration::from_secs(delay_minutes as u64 * 60)).await;
+                }
+                current_batch_product_count = 0; // Reset counter
+            }
+
+            // Execute the task
             if let Err(e) = task.await {
                 println!("{}", format!("Task execution error: {:?}", e).red());
                 self.mark_failure(0, format!("Task execution failed: {}", e), None)
                     .await?;
             }
+
+            current_batch_product_count += product_count_in_group;
         }
 
         Ok(())
@@ -1132,6 +1180,17 @@ impl WooCommerceProcessor {
         &self,
         product: &WooCommerceProduct,
     ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
+        if self.dry_run {
+            println!(
+                "{}",
+                format!(
+                    "🔍 DRY RUN: Would update product with SKU: {} and ID: {}",
+                    product.sku, product.id
+                )
+                .bright_cyan()
+            );
+            return Ok(product.clone());
+        }
         let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
         println!(
             "Updating product with sku: {} and JSON body: {}",
@@ -1163,6 +1222,17 @@ impl WooCommerceProcessor {
         product: &ProductVariation,
         parent_id: &str,
     ) -> Result<ProductVariation, Box<dyn std::error::Error>> {
+        if self.dry_run {
+            println!(
+                "{}",
+                format!(
+                    "🔍 DRY RUN: Would update variation with SKU: {} and ID: {} for parent: {}",
+                    product.sku, product.id, parent_id
+                )
+                .bright_cyan()
+            );
+            return Ok(product.clone());
+        }
         let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
         println!(
             "Updating product with id {} variation with sku: {} and JSON body: {}",
@@ -1193,7 +1263,17 @@ impl WooCommerceProcessor {
         &self,
         product: &WooCommerceProduct,
     ) -> Result<WooCommerceProduct, Box<dyn std::error::Error>> {
-        // amke id empty
+        if self.dry_run {
+            println!(
+                "{}",
+                format!("🔍 DRY RUN: Would create product with SKU: {}", product.sku).bright_cyan()
+            );
+            // Return a mock product with a fake ID for dry run
+            let mut mock_product = product.clone();
+            mock_product.set_id(format!("dry_run_{}", product.sku));
+            return Ok(mock_product);
+        }
+        // make id empty
         let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
         println!(
             "Creating product with JSON body: {} for product id {} and name {}",
@@ -1221,6 +1301,31 @@ impl WooCommerceProcessor {
         &self,
         products: (Vec<WooCommerceProduct>, Vec<WooCommerceProduct>),
     ) -> Result<BatchProductResponse, Box<dyn std::error::Error + Send + Sync>> {
+        if self.dry_run {
+            let (create_products, update_products) = products;
+            println!(
+                "{}",
+                format!(
+                    "🔍 DRY RUN: Would batch process {} creates and {} updates",
+                    create_products.len(),
+                    update_products.len()
+                )
+                .bright_cyan()
+            );
+
+            // Return mock response for dry run
+            let mock_response = BatchProductResponse {
+                create: create_products
+                    .into_iter()
+                    .map(|mut p| {
+                        p.set_id(format!("dry_run_{}", p.sku));
+                        p
+                    })
+                    .collect(),
+                update: update_products,
+            };
+            return Ok(mock_response);
+        }
         let (create_products, update_products) = products;
 
         let batch_request = BatchProductRequest {
@@ -1253,6 +1358,20 @@ impl WooCommerceProcessor {
         product: &ProductVariation,
         parent_id: &str,
     ) -> Result<ProductVariation, Box<dyn std::error::Error>> {
+        if self.dry_run {
+            println!(
+                "{}",
+                format!(
+                    "🔍 DRY RUN: Would create variation with SKU: {} for parent ID: {}",
+                    product.sku, parent_id
+                )
+                .bright_cyan()
+            );
+            let mut mock_variation = product.clone();
+            mock_variation.set_id(format!("dry_run_var_{}", product.sku));
+            return Ok(mock_variation);
+        }
+
         // amke id empty
         let json_body = serde_json::to_string(&product).unwrap_or("{}".to_string());
         println!(
@@ -1569,6 +1688,18 @@ pub async fn process_woocommerce_csv(file_queue: NewFileProcessQueue) -> Result<
     let consumer_secret = &file_queue.site_details.secret;
     let file_path = &file_queue.file;
     let file_id = file_path.split('.').next().unwrap_or("").to_string();
+    let batch_size = file_queue.batch_size as usize;
+    let batch_delay_minutes = file_queue.batch_delay_minutes;
+    let dry_run = file_queue.dry_run; // extract dry_run
+
+    if dry_run {
+        println!(
+            "{}",
+            format!("🔍 STARTING DRY RUN MODE - No actual API calls will be made")
+                .bright_cyan()
+                .bold()
+        );
+    }
 
     println!("Processing CSV: {:?}", file_queue);
 
@@ -1595,6 +1726,9 @@ pub async fn process_woocommerce_csv(file_queue: NewFileProcessQueue) -> Result<
             file_path.to_string(),
             file_id,
             rows_to_process as usize,
+            batch_size,
+            batch_delay_minutes,
+            dry_run,
         )
         .await
         .map_err(|e| format!("Failed to create processor: {}", e))?,

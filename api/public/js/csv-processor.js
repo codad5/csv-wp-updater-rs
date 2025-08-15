@@ -1205,6 +1205,9 @@ function processCSV() {
   let rowCount = parseInt($("#rowCount").val()) || 99999;
   let priority = parseInt($("#priority").val()) || 1;
   let isNewUpload = $("#is_new_upload").is(":checked");
+  const batch_size = parseInt($("#batchSize").val()) || 50;
+  const batch_delay_minutes = parseInt($("#batchDelay").val()) || 5;
+  const dry_run = $("#dryRun").is(":checked");
 
   // Create a complete mapping object including attributes
   let completeMapping = { ...fieldMapping };
@@ -1230,6 +1233,9 @@ function processCSV() {
     priority,
     wordpress_field_mapping: completeMapping,
     is_new_upload: isNewUpload, // Add the new checkbox value to the data object
+    batch_delay_minutes,
+    batch_size,
+    dry_run,
   };
 
   $.ajax({
