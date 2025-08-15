@@ -37,14 +37,22 @@ export interface ProcessResponse {
 
 export interface ProgressResponse {
   id: string;
-  status: "queued" | "processing" | "completed" | "failed";
   progress: number;
-  message?: string;
+  status: "processing" | "completed" | "failed" | "not_found";
+  message: string;
+  stage?: {
+    stage: string;
+    message: string;
+  };
+  stage_message?: string;  // ADD this for compatibility
   totalEntries?: number;
-  estimatedTime?: string;
-  estimatedTimeMs?: number;
+  processedEntries?: number;
+  successfulEntries?: number;
+  failedEntries?: number;
   estimatedTimeRemaining?: string;
   estimatedTimeRemainingMs?: number;
+  startTime?: string;
+  lastUpdated?: string;
 }
 
 export interface DeleteResponse {
@@ -131,19 +139,19 @@ export interface FailedProductDetail {
   sku: string;
   reason: string;
 }
-
 export interface ProcessingProgress {
   file_id: string;
   percent: number;
-  stage: ProcessingStage | string;
+  stage: string | ProcessingStage;  // UPDATED - Can be either string or object for compatibility
+  stage_message: string;
   total_rows: number;
   processed_rows: number;
   successful_rows: number;
   failed_rows: number;
-  failed_row_details: FailedRowDetail[];        // NEW
-  failed_product_details: FailedProductDetail[]; // NEW
-  start_time: RustTimestamp;
-  last_updated: RustTimestamp;
+  failed_row_details?: FailedRowDetail[];     // ADD these
+  failed_product_details?: FailedProductDetail[];  // ADD these
+  start_time: string;
+  last_updated: string;
 }
 
 // You can use these types like this:

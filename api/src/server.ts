@@ -4,8 +4,6 @@ import bodyParser from "body-parser";
 import {
   upload,
   uploadExists,
-  processedExists,
-  getProcessedFilePath,
   getUploadFilePath,
   deleteReport,
   deleteUploadedFile,
@@ -26,12 +24,6 @@ import {
   ReportListResponse,
 } from "@/types/response";
 import { ProcessOptions, WordPressFieldMapping } from "@/types/request";
-import {
-  getFileProgress,
-  isFileInProcessing,
-  startFileProcess,
-  fileProcessingService,
-} from "@/lib/redis";
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
@@ -227,22 +219,23 @@ app.post("/process/:id", async (req: Request, res: Response) => {
       Math.min(totalEntries, rowCount)
     );
 
-    if (await fileProcessingService.isFileInProcessing(id)) {
+    if (await progressService.isProcessing(id)) {
       console.log("File is already in processing");
-      const progress = (await fileProcessingService.getFileProgress(id)) ?? 0;
+      const progressResponse = await progressService.getProgressResponse(id);
 
       ResponseHelper.success<ProcessResponse>({
         id,
         file: fileName,
-        message: "File is already in processing",
+        message:
+          progressResponse.stage_message || "File is already in processing",
         options: {
           priority,
           wordpress_field_mapping: cleanedMapping,
           siteDetails: { ...siteDetails, secret: "***" },
         },
         status: "processing",
-        progress,
-        totalEntries,
+        progress: progressResponse.progress,
+        totalEntries: progressResponse.totalEntries || totalEntries,
         estimatedTimeMs,
         estimatedTime: estimatedTimeFormatted,
       });
@@ -262,7 +255,6 @@ app.post("/process/:id", async (req: Request, res: Response) => {
       throw new Error("Failed to send file to queue");
     }
 
-    await fileProcessingService.startFileProcess(id);
 
     ResponseHelper.success<ProcessResponse>({
       id,

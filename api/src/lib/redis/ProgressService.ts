@@ -73,6 +73,7 @@ export class ProgressService extends BaseRedisService {
     }
   }
 
+  // In ProgressService.ts - UPDATE the getProgressResponse method:
   async getProgressResponse(fileId: string): Promise<ProgressResponse> {
     const detailedProgress = await this.getDetailedProgress(fileId);
 
@@ -81,18 +82,43 @@ export class ProgressService extends BaseRedisService {
         id: fileId,
         progress: 0,
         status: "not_found",
-        stage_message: "Not found",
         message: "File processing not found",
+        stage_message: "Not found",
       };
     }
 
-    // Determine status based on stage
+    // Determine status based on stage string (updated for new format)
     let status: "processing" | "completed" | "failed" = "processing";
-    if (detailedProgress.stage.stage === "Completed") {
-      status = "completed";
-    } else if (detailedProgress.stage.stage === "Failed") {
-      status = "failed";
+    if (typeof detailedProgress.stage === "string") {
+      // Handle new string-based stage format
+      if (detailedProgress.stage === "Completed") {
+        status = "completed";
+      } else if (detailedProgress.stage === "Failed") {
+        status = "failed";
+      }
+    } else if (
+      detailedProgress.stage &&
+      typeof detailedProgress.stage === "object"
+    ) {
+      // Handle old object-based stage format (for backward compatibility)
+      if (detailedProgress.stage.stage === "Completed") {
+        status = "completed";
+      } else if (detailedProgress.stage.stage === "Failed") {
+        status = "failed";
+      }
     }
+
+    // Use stage_message if available, fallback to stage.message or a default
+    const stageMessage =
+      detailedProgress.stage_message ||
+      (typeof detailedProgress.stage === "object"
+        ? detailedProgress.stage.message
+        : "") ||
+      `Status: ${
+        typeof detailedProgress.stage === "string"
+          ? detailedProgress.stage
+          : "Processing"
+      }`;
 
     // Calculate estimated time remaining
     const { estimatedTimeRemaining, estimatedTimeRemainingMs } =
@@ -102,7 +128,7 @@ export class ProgressService extends BaseRedisService {
         detailedProgress.start_time
       );
 
-    // if progress is 100% clear the cache key
+    // Clear cache if processing is complete
     if (
       detailedProgress.percent >= 100 ||
       status === "completed" ||
@@ -113,11 +139,14 @@ export class ProgressService extends BaseRedisService {
 
     return {
       id: fileId,
-      progress: Math.round(detailedProgress.percent * 100) / 100, // Round to 2 decimal places
+      progress: Math.round(detailedProgress.percent * 100) / 100,
       status,
-      message: detailedProgress.stage.message,
-      stage: detailedProgress.stage,
-      stage_message: detailedProgress.stage_message ?? "Processing",
+      message: stageMessage,
+      stage:
+        typeof detailedProgress.stage === "string"
+          ? { stage: detailedProgress.stage, message: stageMessage }
+          : detailedProgress.stage,
+      stage_message: stageMessage,
       totalEntries: detailedProgress.total_rows,
       processedEntries: detailedProgress.processed_rows,
       successfulEntries: detailedProgress.successful_rows,
