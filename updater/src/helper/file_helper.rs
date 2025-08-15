@@ -31,6 +31,23 @@ pub fn get_upload_path(file: &str) -> PathBuf {
 }
 
 
+pub fn get_processed_history_path() -> PathBuf {
+    let base_path = std::env::var("SHARED_STORAGE_PATH").unwrap();
+    let folder_path = Path::new(&base_path).join("processed/history");
+    
+    if !folder_path.exists() {
+        fs::create_dir_all(&folder_path).expect("Failed to create history directory");
+    }
+    
+    folder_path
+}
+
+pub fn get_report_path(file_id: &str) -> PathBuf {
+    let history_path = get_processed_history_path();
+    history_path.join(format!("{}_processing_result.json", file_id))
+}
+
+
 pub fn get_csv_image_process_path(file: &str) -> PathBuf {
     let base_path = std::env::var("SHARED_STORAGE_PATH").unwrap();
     let folder_path = Path::new(&base_path).join("csv_image_process");

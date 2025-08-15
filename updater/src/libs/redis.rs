@@ -13,13 +13,6 @@ pub enum Status {
     Failed,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ModelStatus {
-    Queued,
-    Downloading,
-    Completed,
-    Failed,
-}
 
 impl Status {
     fn to_string(&self) -> String {
@@ -39,38 +32,12 @@ impl Status {
     }
 }
 
-impl ModelStatus {
-    fn to_string(&self) -> String {
-        match self {
-            ModelStatus::Queued => "queued".to_string(),
-            ModelStatus::Downloading => "downloading".to_string(),
-            ModelStatus::Completed => "completed".to_string(),
-            ModelStatus::Failed => "failed".to_string(),
-        }
-    }
-
-    fn from_string(s: &str) -> Self {
-        match s {
-            "queued" => ModelStatus::Queued,
-            "downloading" => ModelStatus::Downloading,
-            "completed" => ModelStatus::Completed,
-            "failed" => ModelStatus::Failed,
-            _ => ModelStatus::Queued,
-        }
-    }
-}
-
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string())
     }
 }
 
-impl std::fmt::Display for ModelStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
 
 pub async fn get_redis_client() -> RedisResult<&'static Client> {
     REDIS_CLIENT.get_or_try_init(|| async {

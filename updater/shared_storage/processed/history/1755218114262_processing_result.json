@@ -1,0 +1,17 @@
+{
+  "file_id": "1755218114262",
+  "percent": 100.0,
+  "stage": "Completed",
+  "total_rows": 50,
+  "processed_rows": 17,
+  "successful_rows": 0,
+  "failed_rows": 17,
+  "start_time": {
+    "secs_since_epoch": 1755218123,
+    "nanos_since_epoch": 553793600
+  },
+  "last_updated": {
+    "secs_since_epoch": 1755218166,
+    "nanos_since_epoch": 982704735
+  }
+}

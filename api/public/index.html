@@ -1,1631 +1,405 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CSV Processor</title>
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <style>
-    body { 
-      font-family: Arial, sans-serif; 
-      padding: 20px; 
-      max-width: 1200px;
-      margin: 0 auto;
-      background-color: #f5f5f5;
-    }
-    .content { 
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      position: relative;
-    }
-    .progress-container { 
-      margin-top: 10px;
-      background: #f0f0f0;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    .progress-bar { 
-      height: 20px; 
-      background: #007bff; 
-      width: 0%; 
-      transition: width 0.5s;
-      border-radius: 10px;
-    }
-    .progress-info {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 5px;
-      font-size: 14px;
-      color: #555;
-    }
-    .input-group { 
-      margin-bottom: 15px;
-    }
-    .input-group label {
-      display: block;
-      margin-bottom: 5px;
-      color: #555;
-    }
-    input[type="text"],
-    input[type="number"],
-    input[type="file"],
-    input[type="password"],
-    select {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-sizing: border-box;
-    }
-    button {
-      background: #007bff;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-    button:hover {
-      background: #0056b3;
-    }
-    button:disabled {
-      background: #cccccc;
-      cursor: not-allowed;
-    }
-    pre {
-      background: #f8f9fa;
-      padding: 15px;
-      border-radius: 4px;
-      overflow-x: auto;
-      max-height: 300px;
-    }
-    .error {
-      color: #dc3545;
-      padding: 10px;
-      border-radius: 4px;
-      margin-top: 5px;
-    }
-    .success {
-      color: #28a745;
-      padding: 10px;
-      border-radius: 4px;
-      margin-top: 5px;
-    }
-    .mapping-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    .mapping-table th,
-    .mapping-table td {
-      padding: 10px;
-      border: 1px solid #ddd;
-      text-align: left;
-    }
-    .mapping-table th {
-      background-color: #f5f5f5;
-    }
-    .section {
-      margin-bottom: 30px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid #eee;
-    }
-    .hidden {
-      display: none;
-    }
-    .step-indicator {
-      display: flex;
-      margin-bottom: 30px;
-    }
-    .step {
-      flex: 1;
-      text-align: center;
-      padding: 10px;
-      background: #eee;
-      border-radius: 4px;
-      margin: 0 5px;
-      opacity: 0.5;
-    }
-    .step.active {
-      background: #007bff;
-      color: white;
-      opacity: 1;
-    }
-    .step.completed {
-      background: #28a745;
-      color: white;
-      opacity: 1;
-    }
-    .attributes-section {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #f8f9fa;
-      border-radius: 8px;
-      border: 1px solid #eee;
-    }
-    .attribute-row {
-      display: flex;
-      margin-bottom: 10px;
-      align-items: center;
-    }
-    .attribute-row input, 
-    .attribute-row select {
-      flex: 1;
-      margin-right: 10px;
-    }
-    .attribute-checkbox-container {
-      display: flex;
-      align-items: center;
-      margin-right: 10px;
-    }
-    .attribute-checkbox-container input[type="checkbox"] {
-      margin-right: 5px;
-    }
-    .remove-attribute {
-      background: #dc3545;
-      padding: 6px 12px;
-      font-size: 14px;
-    }
-    .remove-attribute:hover {
-      background: #bb2d3b;
-    }
-    .add-attribute-btn {
-      margin-top: 10px;
-    }
-    .new-product-checkbox {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #e9f7ef;
-      border-radius: 8px;
-      border: 1px solid #d5f5e3;
-      display: flex;
-      align-items: center;
-    }
-    .new-product-checkbox input[type="checkbox"] {
-      margin-right: 10px;
-      transform: scale(1.2);
-    }
-    .new-product-checkbox label {
-      font-weight: bold;
-      color: #2e7d32;
-    }
-
-    .rules-container {
-      margin: 15px 0;
-      padding: 15px;
-      background-color: #f8f9fa;
-      border-left: 4px solid #007bff;
-      border-radius: 4px;
-    }
-
-    .rules-list {
-      margin-bottom: 0;
-      padding-left: 20px;
-    }
-
-    .rules-list li {
-      margin-bottom: 8px;
-    }
-
-    .rules-list li:last-child {
-      margin-bottom: 0;
-    }
-    
-    /* Site Selector Styles */
-    .site-selector {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    
-    .site-selector select {
-      padding: 8px;
-      border-radius: 4px;
-      border: 1px solid #ddd;
-      min-width: 200px;
-    }
-    
-    .add-site-btn {
-      padding: 6px 12px;
-      font-size: 14px;
-    }
-    
-    /* Modal Styles */
-    .modal-backdrop {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.5);
-      z-index: 1000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    
-    .modal-container {
-      background-color: white;
-      border-radius: 8px;
-      padding: 20px;
-      width: 500px;
-      max-width: 90%;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #eee;
-    }
-    
-    .modal-header h3 {
-      margin: 0;
-    }
-    
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 20px;
-      cursor: pointer;
-      color: #666;
-    }
-    
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 20px;
-      padding-top: 10px;
-      border-top: 1px solid #eee;
-    }
-    
-    .modal-btn-cancel {
-      background-color: #f5f5f5;
-      color: #333;
-    }
-    
-    .modal-btn-save {
-      background-color: #28a745;
-    }
-    
-    .modal-btn-delete {
-      background-color: #dc3545;
-      margin-right: auto;
-    }
-
-    .hidden{
-      display: none;
-    }
-
-    .view-sites-btn {
-    background: #6c757d;
-    color: white;
-    border: none;
-    padding: 8px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.3s ease;
-  }
-
-  .view-sites-btn:hover {
-    background: #5a6268;
-  }
-
-  .edit-site-btn:hover {
-    background: #0069d9;
-  }
-
-  .select-site-btn:hover:not(:disabled) {
-    background: #218838;
-  }
-
-  /* Responsive table for sites list */
-  @media (max-width: 768px) {
-    #sites-table {
-      display: block;
-      overflow-x: auto;
-    }
-    
-    .modal-container {
-      width: 95% !important;
-    }
-  }
-
-  /* Badge styling */
-  .badge {
-    display: inline-block;
-    padding: 0.25em 0.4em;
-    font-size: 75%;
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
-    white-space: nowrap;
-    vertical-align: baseline;
-    border-radius: 0.25rem;
-  }
-  </style>
-</head>
-<body>
-  <div class="content">
-    <h1>CSV Processor for WooCommerce 📊</h1>
-    <p>Upload, map fields, and process your CSV files with ease.</p>
-    
-    <!-- Site Selector -->
-  <div class="site-selector">
-    <select id="site-select">
-      <option value="">Select a site</option>
-    </select>
-    <button class="view-sites-btn" onclick="showViewSitesModal()" style="margin-right: 5px;">View Sites</button>
-    <button class="add-site-btn" onclick="showAddSiteModal()">+ Add Site</button>
-  </div>
-
-    <div class="step-indicator">
-      <div class="step active" id="step1">1. Upload CSV</div>
-      <div class="step" id="step2">2. Map Fields</div>
-      <div class="step" id="step3">3. Process</div>
-    </div>
-
-    <div id="section-upload" class="section">
-      <h2>Upload CSV File</h2>
-      <div class="input-group">
-        <label>Select CSV File</label>
-        <input type="file" id="csvUpload" accept=".csv" />
-      </div>
-      <button onclick="uploadCSV()">Upload</button>
-      <div id="uploadStatus"></div>
-    </div>
-
-    <div id="section-mapping" class="section hidden">
-      <h2>Map CSV Fields to WooCommerce Fields</h2>
-      <p>Select which columns from your CSV file should map to WooCommerce product fields.</p>
-
-      <div class="rules-container">
-        <h3>📝 Important Notes & Rules</h3>
-        <ul class="rules-list">
-          <li><strong>Required Fields:</strong> Fields with <span style="color: #dc3545;">*</span> are mandatory and must be mapped.</li>
-          <li><strong>CSV Headers:</strong> Your CSV must have headers that match or are similar to WooCommerce fields for best auto-mapping.</li>
-          <li><strong>Variations:</strong> For product variations, ensure the Parent SKU is correctly set in the Parent field.</li>
-          <li><strong>Variable Products:</strong> Before you can have a variation of a main product, there must be at least one variable attribute (WooCommerce standard).</li>
-          <li><strong>Field Mapping:</strong> You cannot map 2 WooCommerce fields to the same CSV column as this would cause data overwrite.</li>
-          <li><strong>Images:</strong> Multiple images should be separated by the pipe symbol (|) in your CSV.</li>
-          <li><strong>Categories:</strong> Multiple categories should be separated by the pipe symbol (|).</li>
-          <li><strong>Attributes:</strong> For variable products, make sure to check the "Variable" box for attributes used in variations.</li>
-          <li><strong>New Products:</strong> Check the "New product" box below if you're uploading entirely new products rather than updating existing ones.</li>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CSV Processor</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <div class="content">
+      <h1>CSV Processor for WooCommerce 📊</h1>
+      <nav class="main-nav">
+        <ul class="nav-tabs">
+          <li class="nav-tab active" data-tab="processor">
+            <a href="#processor">CSV Processor</a>
+          </li>
+          <li class="nav-tab" data-tab="files">
+            <a href="#files">Manage Files</a>
+          </li>
+          <li class="nav-tab" data-tab="reports">
+            <a href="#reports">Reports</a>
+          </li>
         </ul>
-      </div>
-      
-      <!-- New Product Checkbox -->
-      <div class="new-product-checkbox">
-        <input type="checkbox" id="is_new_upload" name="is_new_upload">
-        <label for="is_new_upload">New product?</label>
-      </div>
-      
-      <div id="mapping-container">
-        <table class="mapping-table" id="mapping-table">
-          <thead>
-            <tr>
-              <th>WooCommerce Field</th>
-              <th>CSV Column</th>
-            </tr>
-          </thead>
-          <tbody id="mapping-fields">
-            <!-- Field mapping will be added here dynamically -->
-          </tbody>
-        </table>
-      </div>
-      
-      <!-- Product Attributes Section -->
-      <div class="attributes-section">
-        <h3>Product Attributes</h3>
-        <p>Map CSV columns to product attributes. Check "Variable" for attributes used in variations.</p>
-        <div id="attribute-mappings"></div>
-        <button class="add-attribute-btn" onclick="addAttributeMapping()">Add Attribute</button>
-      </div>
-      
-      <br>
-      <button onclick="goBack()">Back</button>
-      <button onclick="continueToProcessing()">Continue to Processing</button>
-    </div>
+      </nav>
+      <p>Upload, map fields, and process your CSV files with ease.</p>
 
-    <div id="section-process" class="section hidden">
-      <h2>Process CSV</h2>
-      <div class="input-group">
-        <label>Start Row:</label>
-        <input type="number" id="startRow" value="0" min="0" />
-      </div>
-      <div class="input-group">
-        <label>Row Count (max rows to process):</label>
-        <input type="number" id="rowCount" value="99999" min="1" />
-      </div>
-      <div class="input-group">
-        <label>Priority:</label>
-        <select id="priority">
-          <option value="0">Low</option>
-          <option value="1" selected>Medium</option>
-          <option value="2">High</option>
-        </select>
-      </div>
-
-      <button onclick="goToMapping()">Back to Mapping</button>
-      <button onclick="processCSV()">Process CSV</button>
-      <br /><br />
-
-      <h3>Progress</h3>
-      <div class="progress-container">
-        <div class="progress-bar" id="progressBar"></div>
-      </div>
-      <div class="progress-info">
-        <span id="progressText">Waiting for processing...</span>
-        <span id="processTimer">00:00:00</span>
-      </div>
-
-      <h3>Processing Results</h3>
-      <pre id="processingResults">Results will appear here after processing.</pre>
-    </div>
-  </div>
-  
-  <!-- Add Site Modal -->
-  <div id="site-modal" class="modal-backdrop hidden">
-    <div class="modal-container">
-      <div class="modal-header">
-        <h3 id="modal-title">Add New Site</h3>
-        <button class="modal-close" onclick="hideModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="input-group">
-          <label for="site-name">Site Name</label>
-          <input type="text" id="site-name" placeholder="My Store" required>
+      <div id="tab-processor" class="tab-content active">
+        <!-- Site Selector -->
+        <div class="site-selector">
+          <select id="site-select">
+            <option value="">Select a site</option>
+          </select>
+          <button
+            class="view-sites-btn"
+            onclick="showViewSitesModal()"
+            style="margin-right: 5px"
+          >
+            View Sites
+          </button>
+          <button class="add-site-btn" onclick="showAddSiteModal()">
+            + Add Site
+          </button>
         </div>
-        <div class="input-group">
-          <label for="site-url">Site URL</label>
-          <input type="text" id="site-url" placeholder="https://mystore.com" required>
-        </div>
-        <div class="input-group">
-          <label for="consumer-key">Consumer Key</label>
-          <input type="text" id="consumer-key" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxx" required>
-        </div>
-        <div class="input-group">
-          <label for="consumer-secret">Consumer Secret</label>
-          <input type="password" id="consumer-secret" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxx" required>
-        </div>
-        <input type="hidden" id="edit-site-id" value="">
-      </div>
-      <div class="modal-footer">
-        <button id="delete-site-btn" class="modal-btn-delete hidden" onclick="deleteSite()">Delete</button>
-        <button class="modal-btn-cancel" onclick="hideModal()">Cancel</button>
-        <button class="modal-btn-save" onclick="saveSite()">Save Site</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- View Sites Modal -->
-  <div id="view-sites-modal" class="modal-backdrop hidden">
-    <div class="modal-container" style="width: 700px;">
-      <div class="modal-header">
-        <h3>Manage Sites</h3>
-        <button class="modal-close" onclick="hideViewSitesModal()">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div id="sites-list-container">
-          <table class="mapping-table" id="sites-table">
-            <thead>
-              <tr>
-                <th>Site Name</th>
-                <th>URL</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="sites-list-body">
-              <!-- Sites will be loaded here dynamically -->
-            </tbody>
-          </table>
-          <div id="no-sites-message" class="hidden" style="text-align: center; padding: 20px;">
-            <p>No sites configured yet. Add your first site to get started.</p>
+        <div class="step-indicator">
+          <div class="step active" id="step1">1. Upload CSV</div>
+          <div class="step" id="step2">2. Map Fields</div>
+          <div class="step" id="step3">3. Process</div>
+        </div>
+
+        <div id="section-upload" class="section">
+          <h2>Upload CSV File</h2>
+          <div class="input-group">
+            <label>Select CSV File</label>
+            <input type="file" id="csvUpload" accept=".csv" />
+          </div>
+          <button onclick="uploadCSV()">Upload</button>
+          <div id="uploadStatus"></div>
+        </div>
+
+        <div id="section-mapping" class="section hidden">
+          <h2>Map CSV Fields to WooCommerce Fields</h2>
+          <p>
+            Select which columns from your CSV file should map to WooCommerce
+            product fields.
+          </p>
+
+          <div class="rules-container">
+            <h3>📝 Important Notes & Rules</h3>
+            <ul class="rules-list">
+              <li>
+                <strong>Required Fields:</strong> Fields with
+                <span style="color: #dc3545">*</span> are mandatory and must be
+                mapped.
+              </li>
+              <li>
+                <strong>CSV Headers:</strong> Your CSV must have headers that
+                match or are similar to WooCommerce fields for best
+                auto-mapping.
+              </li>
+              <li>
+                <strong>Variations:</strong> For product variations, ensure the
+                Parent SKU is correctly set in the Parent field.
+              </li>
+              <li>
+                <strong>Variable Products:</strong> Before you can have a
+                variation of a main product, there must be at least one variable
+                attribute (WooCommerce standard).
+              </li>
+              <li>
+                <strong>Field Mapping:</strong> You cannot map 2 WooCommerce
+                fields to the same CSV column as this would cause data
+                overwrite.
+              </li>
+              <li>
+                <strong>Images:</strong> Multiple images should be separated by
+                the pipe symbol (|) in your CSV.
+              </li>
+              <li>
+                <strong>Categories:</strong> Multiple categories should be
+                separated by the pipe symbol (|).
+              </li>
+              <li>
+                <strong>Attributes:</strong> For variable products, make sure to
+                check the "Variable" box for attributes used in variations.
+              </li>
+              <li>
+                <strong>New Products:</strong> Check the "New product" box below
+                if you're uploading entirely new products rather than updating
+                existing ones.
+              </li>
+            </ul>
+          </div>
+
+          <!-- New Product Checkbox -->
+          <div class="new-product-checkbox">
+            <input type="checkbox" id="is_new_upload" name="is_new_upload" />
+            <label for="is_new_upload">New product?</label>
+          </div>
+
+          <div id="mapping-container">
+            <table class="mapping-table" id="mapping-table">
+              <thead>
+                <tr>
+                  <th>WooCommerce Field</th>
+                  <th>CSV Column</th>
+                </tr>
+              </thead>
+              <tbody id="mapping-fields">
+                <!-- Field mapping will be added here dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Product Attributes Section -->
+          <div class="attributes-section">
+            <h3>Product Attributes</h3>
+            <p>
+              Map CSV columns to product attributes. Check "Variable" for
+              attributes used in variations.
+            </p>
+            <div id="attribute-mappings"></div>
+            <button class="add-attribute-btn" onclick="addAttributeMapping()">
+              Add Attribute
+            </button>
+          </div>
+
+          <br />
+          <button onclick="goBack()">Back</button>
+          <button onclick="continueToProcessing()">
+            Continue to Processing
+          </button>
+        </div>
+
+        <div id="section-process" class="section hidden">
+          <h2>Process CSV</h2>
+          <div class="input-group">
+            <label>Start Row:</label>
+            <input type="number" id="startRow" value="0" min="0" />
+          </div>
+          <div class="input-group">
+            <label>Row Count (max rows to process):</label>
+            <input type="number" id="rowCount" value="99999" min="1" />
+          </div>
+          <div class="input-group">
+            <label>Priority:</label>
+            <select id="priority">
+              <option value="0">Low</option>
+              <option value="1" selected>Medium</option>
+              <option value="2">High</option>
+            </select>
+          </div>
+
+          <button onclick="goToMapping()">Back to Mapping</button>
+          <button onclick="processCSV()">Process CSV</button>
+          <br /><br />
+
+          <h3>Progress</h3>
+          <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="progress-info">
+            <span id="progressText">Waiting for processing...</span>
+            <span id="processTimer">00:00:00</span>
+          </div>
+
+          <h3>Processing Results</h3>
+          <pre id="processingResults">
+Results will appear here after processing.</pre
+          >
+        </div>
+
+        <!-- Add Site Modal -->
+        <div id="site-modal" class="modal-backdrop hidden">
+          <div class="modal-container">
+            <div class="modal-header">
+              <h3 id="modal-title">Add New Site</h3>
+              <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+              <div class="input-group">
+                <label for="site-name">Site Name</label>
+                <input
+                  type="text"
+                  id="site-name"
+                  placeholder="My Store"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="site-url">Site URL</label>
+                <input
+                  type="text"
+                  id="site-url"
+                  placeholder="https://mystore.com"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="consumer-key">Consumer Key</label>
+                <input
+                  type="text"
+                  id="consumer-key"
+                  placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxx"
+                  required
+                />
+              </div>
+              <div class="input-group">
+                <label for="consumer-secret">Consumer Secret</label>
+                <input
+                  type="password"
+                  id="consumer-secret"
+                  placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxx"
+                  required
+                />
+              </div>
+              <input type="hidden" id="edit-site-id" value="" />
+            </div>
+            <div class="modal-footer">
+              <button
+                id="delete-site-btn"
+                class="modal-btn-delete hidden"
+                onclick="deleteSite()"
+              >
+                Delete
+              </button>
+              <button class="modal-btn-cancel" onclick="hideModal()">
+                Cancel
+              </button>
+              <button class="modal-btn-save" onclick="saveSite()">
+                Save Site
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- View Sites Modal -->
+        <div id="view-sites-modal" class="modal-backdrop hidden">
+          <div class="modal-container" style="width: 700px">
+            <div class="modal-header">
+              <h3>Manage Sites</h3>
+              <button class="modal-close" onclick="hideViewSitesModal()">
+                &times;
+              </button>
+            </div>
+            <div class="modal-body">
+              <div id="sites-list-container">
+                <table class="mapping-table" id="sites-table">
+                  <thead>
+                    <tr>
+                      <th>Site Name</th>
+                      <th>URL</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sites-list-body">
+                    <!-- Sites will be loaded here dynamically -->
+                  </tbody>
+                </table>
+                <div
+                  id="no-sites-message"
+                  class="hidden"
+                  style="text-align: center; padding: 20px"
+                >
+                  <p>
+                    No sites configured yet. Add your first site to get started.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="modal-btn-cancel" onclick="hideViewSitesModal()">
+                Close
+              </button>
+              <button class="modal-btn-save" onclick="showAddSiteModal()">
+                Add New Site
+              </button>
+            </div>
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="modal-btn-cancel" onclick="hideViewSitesModal()">Close</button>
-        <button class="modal-btn-save" onclick="showAddSiteModal()">Add New Site</button>
+
+      <!-- Files Management Tab -->
+      <div id="tab-files" class="tab-content hidden">
+        <h2>📁 Manage CSV Files</h2>
+        <p>View and manage your uploaded CSV files.</p>
+
+        <div class="files-actions">
+          <button onclick="refreshFilesList()" class="refresh-btn">
+            🔄 Refresh
+          </button>
+          <div class="files-stats">
+            <span id="files-count">Loading...</span>
+          </div>
+        </div>
+
+        <div class="files-container">
+          <table class="files-table" id="files-table">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Size</th>
+                <th>Uploaded</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="files-list">
+              <!-- Files will be loaded here -->
+            </tbody>
+          </table>
+          <div id="no-files-message" class="empty-state hidden">
+            <p>
+              📋 No CSV files found. Upload your first file in the CSV Processor
+              tab.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reports Tab -->
+      <div id="tab-reports" class="tab-content hidden">
+        <h2>📊 Processing Reports</h2>
+        <p>View detailed reports from your CSV processing jobs.</p>
+
+        <div class="reports-actions">
+          <button onclick="refreshReportsList()" class="refresh-btn">
+            🔄 Refresh
+          </button>
+          <div class="reports-stats">
+            <span id="reports-count">Loading...</span>
+          </div>
+        </div>
+
+        <div class="reports-container">
+          <table class="reports-table" id="reports-table">
+            <thead>
+              <tr>
+                <th>Report ID</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>Processed</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="reports-list">
+              <!-- Reports will be loaded here -->
+            </tbody>
+          </table>
+          <div id="no-reports-message" class="empty-state hidden">
+            <p>
+              📈 No processing reports found. Process a CSV file to generate
+              your first report.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Report Details Modal -->
+      <div id="report-details-modal" class="modal-backdrop hidden">
+        <div class="modal-container report-modal">
+          <div class="modal-header">
+            <h3>📊 Report Details</h3>
+            <button class="modal-close" onclick="hideReportModal()">
+              &times;
+            </button>
+          </div>
+          <div class="modal-body">
+            <div id="report-details-content">
+              <!-- Report details will be loaded here -->
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn-cancel" onclick="hideReportModal()">
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
 
-<script>
-  /**
- * @type {string} 
- * @description ID of the uploaded file.
- */
-let uploadedFileId = '';
-
-/**
- * @type {Array<string>}
- * @description Array to store the columns of the uploaded CSV file.
- */
-let csvColumns = [];
-
-/**
- * @type {number | null}
- * @description Interval ID for tracking the current progress, or null if not set.
- */
-let currentProgressInterval = null;
-
-/**
- * @type {number | null}
- * @description Interval ID for the timer, or null if not set.
- */
-let timerInterval = null;
-
-/**
- * @type {Date | null}
- * @description Start time of the process, or null if not set.
- */
-let startTime = null;
-
-/**
- * @type {Object<string, string>}
- * @description Object to map fields from the CSV to their corresponding values.
- */
-let fieldMapping = {};
-
-/**
- * @type {Object<string, string>}
- * @description Object to map attributes from the CSV to their corresponding values.
- */
-let attributeMappings = {};
-
-/**
- * @type {number}
- * @description Counter to track the number of attributes processed.
- */
-let attributeCounter = 0;
-
-/**
- * @type {Array<Object>}
- * @description Array to store site configurations
- */
-let sitesList = [];
-
-/**
- * @type {string|null}
- * @description Currently selected site ID
- */
-let currentSiteId = null;
-
-// WooCommerce fields from the provided HTML
-const woocommerceFields = [
-  { value: "id", label: "ID", required: true, description: "Unique product ID (auto-generated if empty)" },
-  { value: "type", label: "Type", required: true, description: "Product type (simple, variable, grouped, external)" },
-  { value: "sku", label: "SKU", required: true, description: "Unique SKU of product" },
-  { value: "parent_id", label: "Parent", required: true, description: "Parent product SKU (for variations)" },
-  { value: "global_unique_id", label: "GTIN, UPC, EAN, or ISBN", required: false, description: "Global product identifier" },
-  { value: "name", label: "Name", required: true, description: "Product name/title" },
-  { value: "published", label: "Published", required: false, description: "Product visibility status (yes/no)" },
-  { value: "featured", label: "Is featured?", required: false, description: "Display product as featured (yes/no)" },
-  { value: "catalog_visibility", label: "Visibility in catalog", required: false, description: "Controls where product appears (visible, catalog, search, hidden)" },
-  { value: "description", label: "Description", required: false, description: "Full product description" },
-  { value: "short_description", label: "Short description", required: false, description: "Brief product summary shown in listings" },
-  { value: "regular_price", label: "Regular price", required: false, description: "Main product price" },
-  { value: "sale_price", label: "Sale price", required: false, description: "Discounted price (if on sale)" },
-  { value: "date_on_sale_from", label: "Date sale price starts", required: false, description: "Sale start date (YYYY-MM-DD)" },
-  { value: "date_on_sale_to", label: "Date sale price ends", required: false, description: "Sale end date (YYYY-MM-DD)" },
-  { value: "tax_status", label: "Tax status", required: false, description: "Product tax status (taxable, shipping, none)" },
-  { value: "tax_class", label: "Tax class", required: false, description: "Tax classification" },
-  { value: "stock_status", label: "In stock?", required: false, description: "Stock status (instock, outofstock, onbackorder)" },
-  { value: "stock_quantity", label: "Stock", required: false, description: "Available inventory quantity" },
-  { value: "manage_stock", label: "Manage Stock", required: false, description: "If to manage stock (true, yes or 1)" },
-  { value: "backorders", label: "Backorders allowed?", required: false, description: "Allow backorders (yes, no, notify)" },
-  { value: "low_stock_amount", label: "Low stock amount", required: false, description: "Threshold for low stock alerts" },
-  { value: "sold_individually", label: "Sold individually?", required: false, description: "Limit to one per order (yes/no)" },
-  { value: "weight", label: "Weight (kg)", required: false, description: "Product weight in kilograms" },
-  { value: "length", label: "Length (cm)", required: false, description: "Product length in centimeters" },
-  { value: "width", label: "Width (cm)", required: false, description: "Product width in centimeters" },
-  { value: "height", label: "Height (cm)", required: false, description: "Product height in centimeters" },
-  { value: "category_ids", label: "Categories", required: false, description: "Product categories (separated IDs by |)" },
-  { value: "tag_ids", label: "Tags (| separated)", required: false, description: "Product tags separated by |" },
-  { value: "shipping_class_id", label: "Shipping class", required: false, description: "Shipping class ID or name" },
-  { value: "images", label: "Images", required: false, description: "Product images (URLs, separated by pipe |)" },
-  { value: "featured_image", label: "Featured Image", required: false, description: "Product Featured Image (URL)" },
-  { value: "upsell_ids", label: "Upsells", required: false, description: "Upsell product IDs (comma separated)" },
-  { value: "cross_sell_ids", label: "Cross-sells", required: false, description: "Cross-sell product IDs (comma separated)" },
-  { value: "grouped_products", label: "Grouped products", required: false, description: "Grouped product IDs (comma separated)" },
-  { value: "product_url", label: "External URL", required: false, description: "URL for external products" },
-  { value: "button_text", label: "Button text", required: false, description: "Button text for external products" },
-  { value: "download_limit", label: "Download limit", required: false, description: "Download limit for downloadable products" },
-  { value: "download_expiry", label: "Download expiry days", required: false, description: "Days until download expires" },
-  { value: "reviews_allowed", label: "Allow customer reviews?", required: false, description: "Enable customer reviews (yes/no)" },
-  { value: "purchase_note", label: "Purchase note", required: false, description: "Note shown after purchase" },
-  { value: "menu_order", label: "Position", required: false, description: "Product sorting position" },
-];
-
-// LocalStorage keys
-const FIELD_MAPPING_KEY = 'csvProcessor_fieldMapping';
-const ATTRIBUTE_MAPPING_KEY = 'csvProcessor_attributeMapping';
-const IS_NEW_UPLOAD_KEY = 'csvProcessor_isNewUpload';
-const SITES_LIST_KEY = 'csvProcessor_sites';
-const CURRENT_SITE_KEY = 'csvProcessor_currentSite';
-
-// Site management functions
-
-/**
- * Initializes the site management and loads saved sites
- */
-/**
- * Initializes the site management and loads saved sites
- */
-function initSites() {
-  loadSitesFromStorage();
-  populateSiteSelector();
-  
-  // Set up event listener for site selection
-  $('#site-select').on('change', function() {
-    const selectedSiteId = $(this).val();
-    if (selectedSiteId) {
-      selectSite(selectedSiteId);
-    }
-  });
-  
-  // Add DOM ready event handler
-  $(document).ready(function() {
-    // If we have sites but none selected, select the first one
-    if (sitesList.length > 0 && !currentSiteId) {
-      selectSite(sitesList[0].id);
-    }
-  });
-}
-
-
-/**
- * Loads site configurations from IndexedDB or localStorage
- */
-function loadSitesFromStorage() {
-  // Try to load from localStorage first
-  const storedSites = localStorage.getItem(SITES_LIST_KEY);
-  if (storedSites) {
-    sitesList = JSON.parse(storedSites);
-  } else {
-    sitesList = [];
-  }
-  
-  // Load the current site ID
-  currentSiteId = localStorage.getItem(CURRENT_SITE_KEY) || null;
-}
-
-/**
- * Saves site configurations to storage
- */
-function saveSitesToStorage() {
-  localStorage.setItem(SITES_LIST_KEY, JSON.stringify(sitesList));
-}
-
-/**
- * Saves the current site ID to storage
- */
-function saveCurrentSiteToStorage() {
-  if (currentSiteId) {
-    localStorage.setItem(CURRENT_SITE_KEY, currentSiteId);
-  }
-}
-
-/**
- * Populates the site selector dropdown with available sites
- */
-function populateSiteSelector() {
-  const siteSelect = $('#site-select');
-  siteSelect.empty();
-  
-  // Add default option
-  siteSelect.append($('<option>').attr('value', '').text('Select a site'));
-  
-  // Add sites from the list
-  sitesList.forEach(site => {
-    siteSelect.append($('<option>').attr('value', site.id).text(site.name));
-  });
-  
-  // Select the current site if available
-  if (currentSiteId && sitesList.some(site => site.id === currentSiteId)) {
-    siteSelect.val(currentSiteId);
-  }
-}
-
-/**
- * Selects a site by ID and updates the current site
- * @param {string} siteId - The ID of the site to select
- */
-function selectSite(siteId) {
-  currentSiteId = siteId;
-  saveCurrentSiteToStorage();
-  
-  // Update the site selector
-  $('#site-select').val(siteId);
-  
-  // You could also load site-specific mappings here if needed
-  console.log(`Selected site: ${siteId}`);
-}
-
-/**
- * Shows the add site modal
- */
-function showAddSiteModal() {
-  // Clear the form
-  $('#site-name').val('');
-  $('#site-url').val('');
-  $('#consumer-key').val('');
-  $('#consumer-secret').val('');
-  $('#edit-site-id').val('');
-  
-  // Hide delete button for new sites
-  $('#delete-site-btn').addClass('hidden');
-  
-  // Set modal title
-  $('#modal-title').text('Add New Site');
-  
-  // Show the modal
-  $('#site-modal').removeClass('hidden');
-}
-
-/**
- * Shows the edit site modal for an existing site
- * @param {string} siteId - The ID of the site to edit
- */
-function showEditSiteModal(siteId) {
-  const site = sitesList.find(s => s.id === siteId);
-  if (!site) return;
-  
-  // Fill the form
-  $('#site-name').val(site.name);
-  $('#site-url').val(site.url);
-  $('#consumer-key').val(site.key);
-  $('#consumer-secret').val(site.secret);
-  $('#edit-site-id').val(site.id);
-  
-  // Show delete button for existing sites
-  $('#delete-site-btn').removeClass('hidden');
-  
-  // Set modal title
-  $('#modal-title').text('Edit Site');
-  
-  // Show the modal
-  $('#site-modal').removeClass('hidden');
-}
-
-/**
- * Hides the site modal
- */
-function hideModal() {
-  $('#site-modal').addClass('hidden');
-}
-
-/**
- * Saves a new site or updates an existing one
- */
-function saveSite() {
-  loadSitesFromStorage()
-  const siteName = $('#site-name').val().trim();
-  const siteUrl = $('#site-url').val().trim();
-  const consumerKey = $('#consumer-key').val().trim();
-  const consumerSecret = $('#consumer-secret').val().trim();
-  const editSiteId = $('#edit-site-id').val();
-  console.log(`Saving site: ${siteName}, ${siteUrl}, ${consumerKey}, ${consumerSecret}`);
-  
-  // Basic validation
-  if (!siteName || !siteUrl || !consumerKey || !consumerSecret) {
-    alert('Please fill in all fields');
-    return;
-  }
-
-  // check if same site already exists
-  const existingSite = sitesList.find(site => site.name === siteName && site.id !== editSiteId);
-  
-  if (editSiteId) {
-    // Update existing site
-    const siteIndex = sitesList.findIndex(s => s.id === editSiteId);
-    if (siteIndex !== -1) {
-      sitesList[siteIndex] = {
-        id: editSiteId,
-        name: siteName,
-        url: siteUrl,
-        key: consumerKey,
-        secret: consumerSecret
-      };
-    }
-  } else {
-    // Add new site
-    const newSite = {
-      id: generateUniqueId(),
-      name: siteName,
-      url: siteUrl,
-      key: consumerKey,
-      secret: consumerSecret
-    };
-    
-    sitesList.push(newSite);
-    
-    // If this is the first site, select it automatically
-    if (sitesList.length === 1) {
-      currentSiteId = newSite.id;
-      saveCurrentSiteToStorage();
-    }
-  }
-  
-  // Save sites to storage
-  saveSitesToStorage();
-  
-  // Update the site selector
-  populateSiteSelector();
-  
-  // Hide the modal
-  hideModal();
-}
-
-/**
- * Deletes a site
- */
-function deleteSite() {
-  const siteId = $('#edit-site-id').val();
-  if (!siteId) return;
-  
-  // Confirm deletion
-  if (!confirm('Are you sure you want to delete this site?')) {
-    return;
-  }
-  
-  // Remove the site from the list
-  sitesList = sitesList.filter(site => site.id !== siteId);
-  
-  // If the deleted site was the current site, clear the current site
-  if (currentSiteId === siteId) {
-    currentSiteId = sitesList.length > 0 ? sitesList[0].id : null;
-    saveCurrentSiteToStorage();
-  }
-  
-  // Save sites to storage
-  saveSitesToStorage();
-  
-  // Update the site selector
-  populateSiteSelector();
-  
-  // Hide the modal
-  hideModal();
-}
-
-/**
- * Generates a unique ID for a new site
- * @returns {string} A unique ID
- */
-function generateUniqueId() {
-  return 'site_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
-
-/**
- * Gets the currently selected site configuration
- * @returns {Object|null} The current site configuration or null if no site is selected
- */
-function getCurrentSite() {
-  if (!currentSiteId) return null;
-  return sitesList.find(site => site.id === currentSiteId) || null;
-}
-
-/**
- * Checks if a site is selected and shows an error if not
- * @returns {boolean} True if a site is selected, false otherwise
- */
-function checkSiteSelected() {
-  if (!currentSiteId) {
-    alert('Please select a site before proceeding.');
-    return false;
-  }
-  return true;
-}
-
-/**
- * Shows the view sites modal with a list of all configured sites
- */
-function showViewSitesModal() {
-  // Load the latest sites data
-  loadSitesFromStorage();
-  
-  // Populate the sites table
-  populateSitesTable();
-  
-  // Show the modal
-  $('#view-sites-modal').removeClass('hidden');
-}
-
-/**
- * Hides the view sites modal
- */
-function hideViewSitesModal() {
-  $('#view-sites-modal').addClass('hidden');
-}
-
-/**
- * Populates the sites table with all configured sites
- */
-function populateSitesTable() {
-  const sitesTableBody = $('#sites-list-body');
-  const noSitesMessage = $('#no-sites-message');
-  
-  // Clear the table
-  sitesTableBody.empty();
-  
-  // Show message if no sites are configured
-  if (sitesList.length === 0) {
-    noSitesMessage.removeClass('hidden');
-    return;
-  }
-  
-  // Hide the message if sites exist
-  noSitesMessage.addClass('hidden');
-  
-  // Add each site to the table
-  sitesList.forEach(site => {
-    const row = $('<tr>');
-    
-    // Site name column - make it bold if it's the current site
-    const nameCell = $('<td>');
-    if (site.id === currentSiteId) {
-      nameCell.html(`<strong>${site.name}</strong> <span class="badge" style="background: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px;">Active</span>`);
-    } else {
-      nameCell.text(site.name);
-    }
-    row.append(nameCell);
-    
-    // URL column
-    const urlCell = $('<td>');
-    urlCell.text(site.url);
-    row.append(urlCell);
-    
-    // Actions column
-    const actionsCell = $('<td>');
-    
-    // Edit button
-    const editButton = $('<button>')
-      .addClass('edit-site-btn')
-      .text('Edit')
-      .css({
-        'background': '#007bff',
-        'color': 'white',
-        'border': 'none',
-        'padding': '5px 10px',
-        'border-radius': '4px',
-        'cursor': 'pointer',
-        'margin-right': '5px'
-      })
-      .on('click', function() {
-        hideViewSitesModal();
-        showEditSiteModal(site.id);
-      });
-    
-    // Select button (only show if not the current site)
-    const selectButton = $('<button>')
-      .addClass('select-site-btn')
-      .text('Select')
-      .css({
-        'background': site.id === currentSiteId ? '#6c757d' : '#28a745',
-        'color': 'white',
-        'border': 'none',
-        'padding': '5px 10px',
-        'border-radius': '4px',
-        'cursor': site.id === currentSiteId ? 'not-allowed' : 'pointer'
-      })
-      .prop('disabled', site.id === currentSiteId)
-      .on('click', function() {
-        selectSite(site.id);
-        hideViewSitesModal();
-        // Refresh the page to reflect the site change
-        // Or you could just update the UI as needed
-        populateSiteSelector();
-      });
-    
-    actionsCell.append(editButton);
-    actionsCell.append(selectButton);
-    row.append(actionsCell);
-    
-    sitesTableBody.append(row);
-  });
-}
-
-/**
- * Saves the current field mapping to localStorage
- */
-function saveFieldMappingToStorage() {
-  try {
-    localStorage.setItem(FIELD_MAPPING_KEY, JSON.stringify(fieldMapping));
-    console.log('Field mapping saved to localStorage');
-  } catch (error) {
-    console.error('Failed to save field mapping to localStorage:', error);
-  }
-}
-
-/**
- * Saves the current attribute mapping to localStorage
- */
-function saveAttributeMappingToStorage() {
-  try {
-    localStorage.setItem(ATTRIBUTE_MAPPING_KEY, JSON.stringify(attributeMappings));
-    console.log('Attribute mapping saved to localStorage');
-  } catch (error) {
-    console.error('Failed to save attribute mapping to localStorage:', error);
-  }
-}
-
-/**
- * Saves the "new product" checkbox state to localStorage
- */
-function saveIsNewUploadToStorage() {
-  try {
-    localStorage.setItem(IS_NEW_UPLOAD_KEY, $('#is_new_upload').is(':checked'));
-    console.log('New product state saved to localStorage');
-  } catch (error) {
-    console.error('Failed to save new product state to localStorage:', error);
-  }
-}
-
-/**
- * Retrieves field mapping from localStorage if available
- * @returns {Object|null} The saved field mapping or null if not available
- */
-function getSavedFieldMapping() {
-  try {
-    const savedMapping = localStorage.getItem(FIELD_MAPPING_KEY);
-    return savedMapping ? JSON.parse(savedMapping) : null;
-  } catch (error) {
-    console.error('Failed to retrieve field mapping from localStorage:', error);
-    return null;
-  }
-}
-
-/**
- * Retrieves attribute mapping from localStorage if available
- * @returns {Object|null} The saved attribute mapping or null if not available
- */
-function getSavedAttributeMapping() {
-  try {
-    const savedMapping = localStorage.getItem(ATTRIBUTE_MAPPING_KEY);
-    return savedMapping ? JSON.parse(savedMapping) : null;
-  } catch (error) {
-    console.error('Failed to retrieve attribute mapping from localStorage:', error);
-    return null;
-  }
-}
-
-/**
- * Retrieves "new product" checkbox state from localStorage if available
- * @returns {boolean} The saved checkbox state or false if not available
- */
-function getSavedIsNewUpload() {
-  try {
-    const isNewUpload = localStorage.getItem(IS_NEW_UPLOAD_KEY);
-    return isNewUpload === 'true';
-  } catch (error) {
-    console.error('Failed to retrieve new product state from localStorage:', error);
-    return false;
-  }
-}
-
-function uploadCSV() {
-  const fileInput = $('#csvUpload')[0].files[0];
-  if (!fileInput) {
-    showUploadStatus("Please select a CSV file", "error");
-    return;
-  }
-
-  let formData = new FormData();
-  formData.append("csv", fileInput);
-
-  showUploadStatus("Uploading...", "");
-  
-  $.ajax({
-    url: "/upload",
-    type: "POST",
-    data: formData,
-    processData: false,
-    contentType: false,
-    success: function (response) {
-      uploadedFileId = response.data.id;
-      showUploadStatus(`File '${response.data.filename}' uploaded successfully!`, "success");
-      
-      // After successful upload, fetch CSV headers
-      fetchCSVColumns(uploadedFileId);
-    },
-    error: function (error) {
-      showUploadStatus(
-        "Upload failed: " + (error.responseJSON?.message || "Unknown error"), 
-        "error"
-      );
-    }
-  });
-}
-
-function fetchCSVColumns(fileId) {
-  $.ajax({
-    url: `/columns/${fileId}`,
-    type: "GET",
-    success: function (response) {
-      csvColumns = response.data.headers;
-      
-      // Now that we have columns, show the mapping section
-      createMappingFields();
-      showSection('mapping');
-    },
-    error: function (error) {
-      showUploadStatus(
-        "Failed to read CSV headers: " + (error.responseJSON?.message || "Unknown error"), 
-        "error"
-      );
-    }
-  });
-}
-
-function createMappingFields() {
-  const mappingContainer = $('#mapping-fields');
-  mappingContainer.empty();
-  
-  // Try to get saved mapping from localStorage
-  const savedFieldMapping = getSavedFieldMapping();
-  
-  // Create mapping rows for key WooCommerce fields
-  woocommerceFields.forEach(field => {
-    const row = $('<tr>');
-    
-    // Create field name cell with description tooltip
-    const fieldNameCell = $('<td>');
-    fieldNameCell.append($('<strong>').text(field.label));
-    
-    // Add required indicator if field is required
-    if (field.required) {
-      fieldNameCell.append(' <span style="color: #dc3545;">*</span>');
-    }
-    
-    // Add description as helper text
-    if (field.description) {
-      fieldNameCell.append($('<div>')
-        .addClass('field-description')
-        .css({
-          'font-size': '12px',
-          'color': '#666',
-          'margin-top': '3px'
-        })
-        .text(field.description));
-    }
-    
-    const mappingCell = $('<td>');
-    
-    const select = $('<select>')
-      .attr('id', `mapping-${field.value}`)
-      .attr('data-field', field.value)
-      .addClass('mapping-select');
-    
-    // Only add "Do not import" option for non-required fields
-    if (!field.required) {
-      // Add empty option
-      select.append($('<option>').attr('value', '').text('Do not import'));
-      
-      // Add separator
-      select.append($('<option>').attr('value', '').text('--------------').prop('disabled', true));
-    }
-    
-    // Add CSV columns as options
-    csvColumns.forEach(column => {
-      const option = $('<option>').attr('value', column).text(column);
-      select.append(option);
-    });
-    
-    // Try to set value from saved mapping first
-    let valueSet = false;
-    
-    if (savedFieldMapping && savedFieldMapping[field.value]) {
-      const savedValue = savedFieldMapping[field.value];
-      // Check if the saved column exists in the current CSV
-      if (csvColumns.includes(savedValue)) {
-        select.val(savedValue);
-        valueSet = true;
-      }
-    }
-    
-    // If no value was set from saved mapping, try smart matching
-    if (!valueSet) {
-      csvColumns.forEach(column => {
-        if (
-          column.toLowerCase() === field.value.toLowerCase() ||
-          column.toLowerCase().includes(field.value.toLowerCase()) ||
-          field.value.toLowerCase().includes(column.toLowerCase())
-        ) {
-          select.val(column);
-          valueSet = true;
-        }
-      });
-    }
-    
-    // For required fields, if no match was found, select the first option
-    if (field.required && !select.val() && csvColumns.length > 0) {
-      select.val(csvColumns[0]);
-    }
-    
-    select.on('change', function() {
-      // For required fields, prevent "Do not import" selection
-      if (field.required && !$(this).val()) {
-        alert(`The field "${field.label}" is required and must be mapped to a CSV column.`);
-        // Reset to first CSV column if available
-        if (csvColumns.length > 0) {
-          $(this).val(csvColumns[0]);
-        }
-      }
-      
-      updateFieldMapping();
-    });
-    
-    mappingCell.append(select);
-    row.append(fieldNameCell, mappingCell);
-    mappingContainer.append(row);
-  });
-  
-  // Initialize mapping object
-  updateFieldMapping();
-  
-  // Clear existing attribute mappings
-  $('#attribute-mappings').empty();
-  attributeMappings = {};
-  attributeCounter = 0;
-  
-  // Restore attribute mappings from localStorage if available
-  const savedAttributeMapping = getSavedAttributeMapping();
-  if (savedAttributeMapping && Object.keys(savedAttributeMapping).length > 0) {
-    for (const [name, details] of Object.entries(savedAttributeMapping)) {
-      // Only restore attributes whose columns exist in the current CSV
-      if (details.column && csvColumns.includes(details.column)) {
-        createAttributeRow(name, details.column, details.variable);
-      }
-    }
-  }
-  
-  // Restore "new product" checkbox state
-  const isNewUpload = getSavedIsNewUpload();
-  $('#is_new_upload').prop('checked', isNewUpload);
-}
-
-function createAttributeRow(name = '', column = '', isVariable = false) {
-  const attributeId = attributeCounter++;
-  const container = $('#attribute-mappings');
-  
-  const row = $('<div>')
-    .addClass('attribute-row')
-    .attr('id', `attribute-row-${attributeId}`);
-  
-  // Input for attribute name
-  const nameInput = $('<input>')
-    .attr('type', 'text')
-    .attr('placeholder', 'Attribute Name (e.g. Color)')
-    .attr('id', `attribute-name-${attributeId}`)
-    .val(name)
-    .on('input', function() {
-      updateAttributeMappings();
-    });
-  
-  // Select for CSV column
-  const columnSelect = createColumnSelect(`attribute-column-${attributeId}`, function() {
-    updateAttributeMappings();
-  });
-  
-  if (column && csvColumns.includes(column)) {
-    columnSelect.val(column);
-  }
-  
-  // Variable checkbox
-  const checkboxContainer = $('<div>')
-    .addClass('attribute-checkbox-container');
-  
-  const variableCheckbox = $('<input>')
-    .attr('type', 'checkbox')
-    .attr('id', `attribute-variable-${attributeId}`)
-    .prop('checked', isVariable)
-    .on('change', function() {
-      updateAttributeMappings();
-    });
-  
-  const checkboxLabel = $('<label>')
-    .attr('for', `attribute-variable-${attributeId}`)
-    .text('Variable');
-  
-  checkboxContainer.append(variableCheckbox, checkboxLabel);
-  
-  // Remove button
-  const removeBtn = $('<button>')
-    .addClass('remove-attribute')
-    .text('×')
-    .on('click', function() {
-      $(`#attribute-row-${attributeId}`).remove();
-      delete attributeMappings[attributeId];
-      updateAttributeMappings();
-    });
-  
-  row.append(nameInput, columnSelect, checkboxContainer, removeBtn);
-  container.append(row);
-  
-  // Update the attribute mappings
-  updateAttributeMappings();
-  
-  return row;
-}
-
-function addAttributeMapping() {
-  createAttributeRow();
-}
-
-function createColumnSelect(id, onChangeHandler) {
-  const select = $('<select>')
-    .attr('id', id)
-    .addClass('attribute-column-select');
-    
-  // Add empty option
-  select.append($('<option>').attr('value', '').text('Select CSV column'));
-  
-  // Add CSV columns as options
-  csvColumns.forEach(column => {
-    select.append($('<option>').attr('value', column).text(column));
-  });
-  
-  if (onChangeHandler) {
-    select.on('change', onChangeHandler);
-  }
-  
-  return select;
-}
-
-function updateAttributeMappings() {
-  attributeMappings = {};
-  
-  $('.attribute-row').each(function() {
-    const id = $(this).attr('id').replace('attribute-row-', '');
-    const name = $(`#attribute-name-${id}`).val();
-    const column = $(`#attribute-column-${id}`).val();
-    const isVariable = $(`#attribute-variable-${id}`).is(':checked');
-    
-    if (name && column) {
-      attributeMappings[name] = {
-        column: column,
-        variable: isVariable
-      };
-    }
-  });
-  
-  console.log('Attribute mappings updated:', attributeMappings);
-  
-  // Save to localStorage
-  saveAttributeMappingToStorage();
-}
-
-function updateFieldMapping() {
-  fieldMapping = {};
-  
-  $('.mapping-select').each(function() {
-    const field = $(this).data('field');
-    const value = $(this).val();
-    
-    if (value) {
-      fieldMapping[field] = value;
-    }
-  });
-  
-  console.log('Field mapping updated:', fieldMapping);
-  
-  // Save to localStorage
-  saveFieldMappingToStorage();
-}
-
-function showUploadStatus(message, type) {
-  $('#uploadStatus').html(`<div class="${type}">${message}</div>`);
-}
-
-function showSection(section) {
-  // Hide all sections
-  $('#section-upload, #section-mapping, #section-process').addClass('hidden');
-  
-  // Show requested section
-  $(`#section-${section}`).removeClass('hidden');
-  
-  // Update step indicators
-  $('.step').removeClass('active completed');
-  
-  switch(section) {
-    case 'upload':
-      $('#step1').addClass('active');
-      break;
-    case 'mapping':
-      $('#step1').addClass('completed');
-      $('#step2').addClass('active');
-      break;
-    case 'process':
-      $('#step1, #step2').addClass('completed');
-      $('#step3').addClass('active');
-      break;
-  }
-}
-
-function goBack() {
-  showSection('upload');
-}
-
-function goToMapping() {
-  showSection('mapping');
-}
-
-function continueToProcessing() {
-  // First check if any fields are mapped
-  if (Object.keys(fieldMapping).length === 0) {
-    alert('Please map at least one field before proceeding.');
-    return;
-  }
-  
-  // Check if all required fields are mapped
-  let missingRequiredFields = [];
-  
-  woocommerceFields.forEach(field => {
-    if (field.required && !fieldMapping[field.value]) {
-      missingRequiredFields.push(field.label);
-    }
-  });
-  
-  if (missingRequiredFields.length > 0) {
-    alert(`The following required fields must be mapped before proceeding:\n- ${missingRequiredFields.join('\n- ')}`);
-    return;
-  }
-  
-  // Save "new product" checkbox state
-  saveIsNewUploadToStorage();
-  
-  showSection('process');
-}
-
-function processCSV() {
-  if (!uploadedFileId) {
-    alert("No CSV file uploaded yet.");
-    return;
-  }
-  
-  if (Object.keys(fieldMapping).length === 0) {
-    alert('Field mapping is required. Please go back and map at least one field.');
-    return;
-  }
-
-  let startRow = parseInt($('#startRow').val()) || 0;
-  let rowCount = parseInt($('#rowCount').val()) || 99999;
-  let priority = parseInt($('#priority').val()) || 1;
-  let isNewUpload = $('#is_new_upload').is(':checked');
-
-  // Create a complete mapping object including attributes
-  let completeMapping = { ...fieldMapping };
-  console.log("attribute field sent", attributeMappings);
-  
-  // Add attributes if any exist
-  if (Object.keys(attributeMappings).length > 0) {
-    completeMapping.attributes = attributeMappings;
-  }
-
-  console.log("wordpress field mapping", completeMapping);
-  const siteDetails = getCurrentSite();
-
-  if (!siteDetails) {
-    alert('No site selected. Please select a site before processing.');
-    return;
-  }
-
-
-
-  let data = { 
-    siteDetails,
-    startRow, 
-    rowCount, 
-    priority,
-    wordpress_field_mapping: completeMapping,
-    is_new_upload: isNewUpload  // Add the new checkbox value to the data object
-  };
-
-  $.ajax({
-    url: `/process/${uploadedFileId}`,
-    type: "POST",
-    contentType: "application/json",
-    data: JSON.stringify(data),
-    success: function (response) {
-      $('#processingResults').text(JSON.stringify(response.data, null, 2));
-      
-      if (response.data.status === 'processing' || 
-          response.data.status === 'queued') {
-        $('#progressText').text('Processing started...');
-        resetProgress();
-        startTimer();
-        trackProgress(uploadedFileId);
-      }
-    },
-    error: function (error) {
-      $('#processingResults').text(
-        "Failed to start processing: " + 
-        JSON.stringify(error.responseJSON || { message: "Unknown error" }, null, 2)
-      );
-      $('#progressText').text('Processing failed to start');
-    }
-  });
-}
-
-function resetProgress() {
-  if (currentProgressInterval) {
-    clearInterval(currentProgressInterval);
-    currentProgressInterval = null;
-  }
-  
-  // Reset timer
-  stopTimer();
-  
-  $('#progressBar').css('width', '0%');
-  $('#progressText').text('Starting process...');
-  $('#processTimer').text('00:00:00');
-}
-
-function startTimer() {
-  stopTimer(); // Clear any existing timer
-  
-  startTime = new Date();
-  $('#processTimer').text('00:00:00');
-  
-  timerInterval = setInterval(() => {
-    const elapsedTime = new Date() - startTime;
-    const hours = Math.floor(elapsedTime / 3600000).toString().padStart(2, '0');
-    const minutes = Math.floor((elapsedTime % 3600000) / 60000).toString().padStart(2, '0');
-    const seconds = Math.floor((elapsedTime % 60000) / 1000).toString().padStart(2, '0');
-    
-    $('#processTimer').text(`${hours}:${minutes}:${seconds}`);
-  }, 1000);
-}
-
-function stopTimer() {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-}
-
-function trackProgress(id) {
-  currentProgressInterval = setInterval(() => {
-    $.get(`/progress/${id}`, function (response) {
-      let progress = response.data.progress;
-      let status = response.data.status;
-      
-      $('#progressBar').css('width', progress + '%');
-      $('#progressText').text(`Progress: ${progress}% - ${status}`);
-
-      if (status === 'completed' || progress >= 100) {
-        clearInterval(currentProgressInterval);
-        currentProgressInterval = null;
-        $('#progressText').text('Processing completed');
-        stopTimer(); // Stop the timer when processing is complete
-      }
-    }).fail((error) => {
-      clearInterval(currentProgressInterval);
-      currentProgressInterval = null;
-      $('#progressText').text('Failed to fetch progress: ' + 
-        (error.responseJSON?.message || "Unknown error"));
-      stopTimer(); // Stop the timer on error
-    });
-  }, 5000);
-}
-
-// Initialize by showing the upload section first
-showSection('upload');
-// Make sure to call initSites when the page loads
-$(document).ready(function() {
-  initSites();
-});
-</script>
-</body>
+    <script src="/js/csv-processor.js"></script>
+  </body>
 </html>

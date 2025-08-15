@@ -1,14 +1,3 @@
-use csv::Reader;
-use redis::aio::MultiplexedConnection;
-use redis::AsyncCommands;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
-use tokio::time::Instant;
-
 use crate::helper::file_helper::get_upload_path;
 use crate::helper::{calculate_hash, clean_string};
 use crate::libs::redis::FileProcessingManager;
@@ -17,10 +6,100 @@ use crate::types::woocommerce::{
     woo_build_product, ProductAttribute, ProductVariation, WooCommerceProduct, WooProduct,
 };
 use crate::worker::NewFileProcessQueue;
+use colored::*;
+use csv::Reader;
+use redis::aio::MultiplexedConnection;
+use redis::AsyncCommands;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::runtime::Runtime;
+use tokio::sync::{Mutex, RwLock};
+use tokio::time::Instant;
 
 use tokio::sync::Semaphore;
 
+use crate::libs::{
+    processing_result::{ProcessingResult, ProductProcessType},
+    progress_manager::{ProcessingStage, ProgressManager},
+};
 
+// create our own custom status enum for either success or failure
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessingStatus {
+    Success,
+    Failure,
+}
+
+// custom type for failed row that holds the number and reason for failure
+#[derive(Debug, Clone)]
+pub struct FailedRow {
+    pub row_number: usize,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupParentResult {
+    group: Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
+    failed: Vec<FailedRow>,
+}
+
+impl GroupParentResult {
+    pub fn new() -> Self {
+        GroupParentResult {
+            group: Vec::new(),
+            failed: Vec::new(),
+        }
+    }
+    pub fn get_group(&self) -> &Vec<(WooCommerceProduct, Vec<ProductVariation>)> {
+        &self.group
+    }
+    pub fn get_failed(&self) -> &Vec<FailedRow> {
+        &self.failed
+    }
+
+    pub fn get_total(&self) -> usize {
+        self.group.len() + self.failed.len()
+    }
+
+    pub fn get_total_products(&self) -> usize {
+        let parent_count = self.group.len();
+        let child_count: usize = self.group.iter().map(|(_, children)| children.len()).sum();
+        parent_count + child_count
+    }
+
+    pub fn add_group(&mut self, parent: WooCommerceProduct, children: Vec<ProductVariation>) {
+        self.group.push((parent, children));
+    }
+
+    pub fn add_many_group(&mut self, groups: Vec<(WooCommerceProduct, Vec<ProductVariation>)>) {
+        self.group.extend(groups);
+    }
+
+    pub fn add_failed_row(&mut self, row_number: usize, reason: String) {
+        self.failed.push(FailedRow { row_number, reason });
+    }
+}
+
+// New structure to track individual row processing details
+#[derive(Debug, Clone)]
+pub struct ProcessedRowInfo {
+    pub row_number: usize,
+    pub processing_time: Duration,
+    pub processed_at: Instant,
+}
+
+// New structure to track product processing details
+#[derive(Debug, Clone)]
+pub struct ProcessedProductInfo {
+    pub sku: String,
+    pub product_type: ProductProcessType, // Parent, Child, or Standalone
+    pub row_number: usize,
+    pub processing_time: Duration,
+    pub processed_at: Instant,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct BatchProductRequest {
@@ -34,7 +113,6 @@ pub struct BatchProductResponse {
     pub update: Vec<WooCommerceProduct>,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ProcessingProgress {
     total_rows: usize,
@@ -43,73 +121,160 @@ struct ProcessingProgress {
     failed_rows: usize,
     new_entries: usize,
 }
-
-impl ProcessingProgress {
-    pub async fn increment_failed_rows(
-        &mut self,
-        file_id: &str,
-        redis_conn: &mut redis::aio::Connection,
-    ) {
-        self.failed_rows += 1;
-        self.processed_rows += 1;
-        self.sync_to_redis(file_id, redis_conn).await;
-    }
-
-    pub async fn sync_to_redis(&self, file_id: &str, redis_conn: &mut redis::aio::Connection) {
-        if let Ok(json) = serde_json::to_string(&self) {
-            let _: () = redis_conn
-                .hset("file_progress", file_id, json)
-                .await
-                .unwrap_or(());
-        }
-    }
-}
 #[derive(Debug, Clone)]
 struct WooCommerceProcessor {
     woocommerce_client: Arc<Client>,
     redis_client: redis::Client,
-    progress: Arc<Mutex<ProcessingProgress>>,
     base_url: String,
     consumer_key: String,
     consumer_secret: String,
+    result: Arc<RwLock<ProcessingResult>>,
 }
 
 impl WooCommerceProcessor {
-    async fn new(base_url: String, consumer_key: String, consumer_secret: String) -> Self {
-        let woocommerce_client = Client::new();
-        let woocommerce_client = match Client::builder()
-            .danger_accept_invalid_certs(true) // 👈 Ignore SSL errors
+    async fn new(
+        base_url: String,
+        consumer_key: String,
+        consumer_secret: String,
+        file_path: String,
+        file_id: String,
+        total_rows: usize,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let woocommerce_client = Client::builder()
+            .danger_accept_invalid_certs(true)
             .build()
-        {
-            Ok(client) => client,
-            Err(e) => {
-                println!("Error creating WooCommerce client: {:?}", e);
-                woocommerce_client
-            }
-        };
+            .unwrap_or_else(|_| Client::new());
+
         let redis_client =
             redis::Client::open("redis://redis:6379/").expect("Failed to create Redis client");
-        // base url but trip off any trailing slash
+
         let base_url = if base_url.ends_with('/') {
             base_url.trim_end_matches('/').to_string()
         } else {
             base_url
         };
-        WooCommerceProcessor {
+
+        // Initialize ProcessingResult directly in new()
+        let processing_result =
+            ProcessingResult::new(file_path.clone(), file_id, total_rows).await?;
+
+        println!(
+            "{}",
+            format!("📈 Initialized processing for: {}", file_path).bright_green()
+        );
+
+        Ok(WooCommerceProcessor {
             woocommerce_client: Arc::new(woocommerce_client),
             redis_client,
-            progress: Arc::new(Mutex::new(ProcessingProgress::default())),
             base_url,
             consumer_key,
             consumer_secret,
-        }
+            result: Arc::new(RwLock::new(processing_result)), // RwLock instead of Mutex
+        })
+    }
+
+    // READ OPERATIONS - Multiple concurrent access allowed
+    // Convenience methods for updating progress
+    async fn set_csv_parsing_complete(&self) -> Result<(), redis::RedisError> {
+        self.result.read().await.set_csv_parsing_complete().await
+    }
+
+    async fn set_grouping_products(&self) -> Result<(), redis::RedisError> {
+        self.result.read().await.set_grouping_products().await
+    }
+
+    async fn set_grouping_complete(
+        &self,
+        total_parents: usize,
+        total_products: usize,
+    ) -> Result<(), redis::RedisError> {
+        self.result
+            .read()
+            .await
+            .set_grouping_complete(total_parents, total_products)
+            .await
+    }
+
+    async fn start_processing_product(
+        &self,
+        sku: String,
+        current: usize,
+        total: usize,
+    ) -> Result<(), redis::RedisError> {
+        self.result
+            .read()
+            .await
+            .start_processing_product(sku, current, total)
+            .await
+    }
+
+    async fn start_processing_variation(
+        &self,
+        sku: String,
+        current: usize,
+        total: usize,
+    ) -> Result<(), redis::RedisError> {
+        self.result
+            .read()
+            .await
+            .start_processing_variation(sku, current, total)
+            .await
+    }
+
+    async fn finalizing(&self) -> Result<(), redis::RedisError> {
+        self.result.read().await.finalizing().await
+    }
+
+    async fn complete_processing(&self) -> Result<(), redis::RedisError> {
+        self.result.write().await.complete().await
+    }
+
+    async fn fail_processing(&self, error: String) -> Result<(), redis::RedisError> {
+        self.result.write().await.fail_with_error(error).await
+    }
+
+    async fn mark_product_processed(
+        &self,
+        sku: String,
+        product_type: ProductProcessType,
+        row_number: usize,
+        processing_start: Instant,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.result
+            .write()
+            .await
+            .mark_product_processed(sku, product_type, row_number, processing_start.into())
+            .await;
+        Ok(())
+    }
+
+    async fn mark_failure(
+        &self,
+        row_number: usize,
+        reason: String,
+        sku: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.result
+            .write()
+            .await
+            .mark_failure(row_number, reason, sku)
+            .await;
+        Ok(())
+    }
+
+    async fn set_total_products(
+        &self,
+        total: usize,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.result.write().await.set_total_products(total);
+        Ok(())
     }
 
     async fn process_csv(
-        self,
+        self: &Arc<Self>,
         file_path: &str,
         field_mapping: &WordPressFieldMapping,
-        setting: &NewFileProcessQueue,  
+        setting: &NewFileProcessQueue,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         //IMPORTANT DOCs: HOW this works
         //TODO: HOW this works
@@ -144,7 +309,7 @@ impl WooCommerceProcessor {
         // 5. DUPLICATE DETECTION VIA SHA HASHING:
         //    - Before processing any product, checks Redis for existing data using SHA comparison
         //    - WHAT WE STORE IN SHA:
-        //      * Key: "products:sha:{sku}" 
+        //      * Key: "products:sha:{sku}"
         //      * Value: SHA hash of the ORIGINAL CSV product data (before API processing)
         //    - COMPARISON PROCESS:
         //      * Takes current CSV row data, serializes to JSON, calculates SHA hash
@@ -179,86 +344,58 @@ impl WooCommerceProcessor {
         let start_row: u32 = setting.start_row;
         let no_of_rows: u32 = setting.row_count;
         let new_product = setting.is_new_upload;
-        let file_id = file_path.split('.').next().unwrap_or("").to_string();
-        FileProcessingManager::start_file_process(file_id.as_str(), 10000)
-            .await
-            .unwrap_or(());
 
-        // First pass to count total rows
+        println!(
+            "{}",
+            format!("🚀 Starting CSV processing for file: {}", file_path)
+                .bright_blue()
+                .bold()
+        );
+
+        // Count total rows first
         let mut rdr = Reader::from_path(get_upload_path(file_path))?;
         let total_row_count: u32 = rdr.records().count().try_into().unwrap();
-        println!("Processing CSV file: {}", file_path);
-        println!("Total rows in CSV: {}", total_row_count);
-        println!("Processing from row {} for {} rows", start_row, no_of_rows);
 
-        // Reset progress
-        let mut progress = self.progress.lock().await;
-        *progress = ProcessingProgress::default();
-
-        // let no_of_rows = 39_000;
-
-        // Set total rows to process based on parameters
         let rows_to_process = if no_of_rows == 0 {
             total_row_count - start_row
         } else {
             no_of_rows.min(total_row_count - start_row)
         };
+        let rows_to_process = rows_to_process.min(40_000);
 
-        let max_rows_to_process = 40_000;
-        let rows_to_process = rows_to_process.min(max_rows_to_process);
+        println!(
+            "Processing from row {} for {} rows",
+            start_row, rows_to_process
+        );
 
-        progress.total_rows = rows_to_process as usize;
-        drop(progress);
+        // Set CSV parsing stage
+        self.set_csv_parsing_complete().await?;
 
-        // Reset reader
+        // Reset reader and prepare data
         let mut rdr = Reader::from_path(get_upload_path(file_path))?;
         let headers = rdr.headers()?.clone();
+
         let reverse_mapping = field_mapping.get_reverse_mapping();
         let reverse_mapping: HashMap<String, String> = reverse_mapping
             .iter()
-            .map(|(k, v)| {
-                let clean_key = clean_string(k);
-                (clean_key, v.clone())
-            })
+            .map(|(k, v)| (clean_string(k), v.clone()))
             .collect();
+
         let reverse_attribute_mapping = field_mapping.get_inverted_attribute();
         let reverse_attribute_mapping: HashMap<String, AttributeMapping> =
             reverse_attribute_mapping
                 .iter()
-                .map(|(k, v)| {
-                    let clean_key = clean_string(k);
-                    (clean_key, v.clone())
-                })
+                .map(|(k, v)| (clean_string(k), v.clone()))
                 .collect();
 
-        println!("Processing records...");
+        // Set grouping stage
+        self.set_grouping_products().await?;
 
-        let new_self = Arc::new(self.clone());
-        // Create a semaphore to limit concurrent tasks
-        let max_concurrency: usize = (total_row_count / 10).clamp(100, 300).try_into().unwrap();
-        println!("\x1b[38;5;166mSpawning with concurrency limit: {max_concurrency}\x1b[0m");
-        let semaphore = Arc::new(Semaphore::new(max_concurrency)); // Limit to 40 concurrent tasks
-        let redis_client = self.redis_client.clone();
-        let progress_clone = Arc::clone(&self.progress);
-        let _file_id = Arc::new(file_id.to_string());
-
-        let mut count = 0;
-
-        let record_vec: Vec<Result<csv::StringRecord, csv::Error>> = rdr.records().collect();
-
-        let record_vec = record_vec
-            .into_iter()
+        let record_vec: Vec<Result<csv::StringRecord, csv::Error>> = rdr
+            .records()
             .skip(start_row as usize)
-            .collect::<Vec<_>>();
-        let record_vec = record_vec
-            .into_iter()
             .take(rows_to_process as usize)
-            .collect::<Vec<_>>();
-        let total_row_count = record_vec.len() as u32;
-
-        // i want to make it in this pattern
-        // vec![(parent, all_child)]
-        // vec![(WooCommerceProduct, Vec<WooCommerceProduct>)]
+            .collect();
 
         let grouped_products = Self::group_products_by_parent(
             record_vec,
@@ -266,380 +403,45 @@ impl WooCommerceProcessor {
             &reverse_mapping,
             &reverse_attribute_mapping,
         )?;
-        println!(
-            "Number of parents/main products: {}",
-            grouped_products.len()
-        );
-        let (products_with_children, products_without_children): (Vec<_>, Vec<_>) = grouped_products
-        .into_iter()
-        .partition(|(_, children)| !children.is_empty());
 
-        print!("\x1B[2J\x1B[1;1H"); // Clear the console
+        // Update progress after grouping
+        self.set_grouping_complete(
+            grouped_products.get_group().len(),
+            grouped_products.get_total_products(),
+        )
+        .await?;
 
-        println!(
-            "No Products without children (standalone products): {}",
-            products_without_children.len()
-        );
-        println!(
-            "Number of standalone products: {}",
-            products_without_children.len()
-        );
+        self.set_total_products(grouped_products.get_total_products())
+            .await?;
 
-        let standalone_products: Vec<WooCommerceProduct> = products_without_children
-        .into_iter()
-        .map(|(parent, _)| parent)
-        .collect();
+        // Process standalone products
+        let (products_with_children, products_without_children): (Vec<_>, Vec<_>) =
+            grouped_products
+                .get_group()
+                .clone()
+                .into_iter()
+                .partition(|(_, children)| !children.is_empty());
 
-        if !standalone_products.is_empty() {
-            let standalone_product_len = standalone_products.len();
-            println!("Processing {} standalone products in batches", standalone_product_len);
-            
-            // Define batch size (adjust as needed)
-            let batch_size = 50; // or whatever size works best for your API
-            let batches: Vec<Vec<WooCommerceProduct>> = standalone_products
-                .chunks(batch_size)
-                .map(|chunk| chunk.to_vec())
-                .collect();
-            
-            println!("Split into {} batches of up to {} products each", batches.len(), batch_size);
-            
-            // Create futures for each batch
-            let mut batch_futures = Vec::new();
-            
-            for (batch_index, batch) in batches.into_iter().enumerate() {
-                let batch_len = batch.len();
-                let self_clone = Arc::clone(&new_self);
-                let file_id_clone = file_id.clone();
-                let semaphore_clone = Arc::clone(&semaphore);
-                
-                let batch_task = tokio::spawn(async move {
-                    // Acquire semaphore permit for this batch
-                    let _permit = semaphore_clone.acquire().await.unwrap();
-                    
-                    println!("Processing batch {} with {} products", batch_index + 1, batch_len);
-                    
-                    let batch_tuple = if new_product {
-                        (batch, Vec::new()) // (create, update)
-                    } else {
-                        (Vec::new(), batch) // (create, update)
-                    };
-                    
-                    match self_clone.batch_update_products(batch_tuple).await {
-                        Ok(_) => {
-                            println!("✅ Batch {} processed successfully ({} products)", batch_index + 1, batch_len);
-                            
-                            // Update progress for this batch
-                            FileProcessingManager::increment_progress(
-                                &file_id_clone,
-                                batch_len as u32,
-                            )
-                            .await
-                            .unwrap_or_else(|e| println!("Failed to update progress for batch {}: {:?}", batch_index + 1, e));
-                            
-                            Ok(batch_len)
-                        }
-                        Err(e) => {
-                            println!("❌ Batch {} processing failed: {:?}", batch_index + 1, e);
-                            
-                            // Still update progress even for failed batches (you might want to handle this differently)
-                            FileProcessingManager::increment_progress(
-                                &file_id_clone,
-                                batch_len as u32,
-                            )
-                            .await
-                            .unwrap_or_else(|e| println!("Failed to update progress for failed batch {}: {:?}", batch_index + 1, e));
-                            
-                            // Convert error to String to make it Send
-                            Err(format!("Batch processing error: {:?}", e))
-                        }
-                    }
-                });
-                
-                batch_futures.push(batch_task);
-            }
-            
-            // Wait for all batch tasks to complete
-            let mut total_processed = 0;
-            let mut total_failed = 0;
-            
-            for (batch_index, batch_task) in batch_futures.into_iter().enumerate() {
-                match batch_task.await {
-                    Ok(Ok(processed_count)) => {
-                        total_processed += processed_count;
-                        println!("Batch {} completed: {} products processed", batch_index + 1, processed_count);
-                    }
-                    Ok(Err(error_msg)) => {
-                        // Batch processing failed, but we already logged it above
-                        println!("Batch {} failed with error: {}", batch_index + 1, error_msg);
-                        total_failed += 1;
-                    }
-                    Err(join_error) => {
-                        println!("Batch {} task failed to complete: {:?}", batch_index + 1, join_error);
-                        total_failed += 1;
-                    }
-                }
-            }
-            
-            println!("🎉 All standalone product batches completed!");
-            println!("   Total processed: {}", total_processed);
-            println!("   Total failed batches: {}", total_failed);
-            
-            // Final progress update for standalone products (optional, since we already updated per batch)
-            // This ensures the progress bar reflects the completion of all standalone products
-            // FileProcessingManager::increment_progress(&file_id, total_processed as u32).await.unwrap_or(());
-        }
-        let mut parent_futures = Vec::new();
-        for (parent, children) in products_with_children {
-            println!(
-                "\x1b[33mNumber of children for parent {}: {}\x1b[0m",
-                parent.sku,
-                children.len()
-            );
-            let redis_client_clone = redis_client.clone();
-            let progress_clone = Arc::clone(&progress_clone);
-            let semaphore_clone = Arc::clone(&semaphore);
-            let new_self_clone = Arc::clone(&new_self);
-            let file_id_clone = Arc::clone(&_file_id); // Clone the file_id for each task
-
-            let parent_task = tokio::spawn(async move {
-                let start = Instant::now();
-                // println!("Processing Parent: {}", parent.sku);
-                // print parent in yellow with avaliable permit in purple
-                let _permit = semaphore_clone.acquire().await.unwrap();
-                let mut redis_conn =
-                    match redis_client_clone.get_multiplexed_async_connection().await {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            println!("Redis connection error: {:?}", e);
-                            let mut progress = progress_clone.lock().await;
-                            progress.failed_rows += 1;
-                            progress.processed_rows += 1;
-                            return;
-                        }
-                    };
-
-                let mut parent_id = parent.id.clone();
-
-                if let Some(prod_id) =
-                    Self::compare_product_last_instance(&parent, &mut redis_conn).await
-                {
-                    parent_id = prod_id;
-                } else {
-                    match new_self_clone
-                        .handle_main_product(&parent, &mut redis_conn, &new_product)
-                        .await
-                    {
-                        Ok(updated_parent) => {
-                            println!("Parent processed successfully: {:?}", updated_parent);
-                            parent_id = updated_parent.id.clone();
-                            let json_body =
-                                serde_json::to_string(&updated_parent).unwrap_or("{}".to_string());
-                            let _: () = redis_conn
-                                .hset("products", &updated_parent.sku, json_body)
-                                .await
-                                .unwrap_or(());
-                            // let newItem =
-                            // TODO:for testing something
-                            let saved_json_body =
-                                serde_json::to_string(&parent).unwrap_or("{}".to_string());
-                            let _: () = redis_conn
-                                .hset(
-                                    "products:sha",
-                                    &updated_parent.sku,
-                                    calculate_hash(saved_json_body),
-                                )
-                                .await
-                                .unwrap_or(());
-                            let _: () = redis_conn
-                                .hset(
-                                    "products:id",
-                                    &updated_parent.sku,
-                                    updated_parent.id.clone(),
-                                )
-                                .await
-                                .unwrap_or(());
-                            FileProcessingManager::increment_progress(
-                                file_id_clone.as_str(),
-                                total_row_count,
-                            )
-                            .await
-                            .unwrap_or(());
-                            let mut progress = progress_clone.lock().await;
-                            progress.successful_rows += 1;
-                            progress.processed_rows += 1;
-                        }
-                        Err(e) => {
-                            println!("Error processing parent: {:?}", e);
-                            FileProcessingManager::increment_progress(
-                                file_id_clone.as_str(),
-                                total_row_count,
-                            )
-                            .await
-                            .unwrap_or(());
-                            let mut progress = progress_clone.lock().await;
-                            progress.failed_rows += 1;
-                            progress.processed_rows += 1;
-                            return;
-                        }
-                    };
-                }
-
-                // Now spawn tasks for the children
-                let mut child_futures = Vec::new();
-                if parent_id.is_empty() {
-                    println!("No parent ID for product {:?}", new_self_clone);
-                    return;
-                }
-                let parent_id = Arc::new(parent_id);
-                for child in children {
-                    let redis_client_clone = redis_client_clone.clone();
-                    let progress_clone = Arc::clone(&progress_clone);
-                    let semaphore_clone = Arc::clone(&semaphore_clone); // Clone from the already cloned version
-                    let new_self_clone = Arc::clone(&new_self_clone); // Clone from the already cloned version
-                    let parent_id_clone = Arc::clone(&parent_id); // Clone the parent_id
-                    let file_id_clone = Arc::clone(&file_id_clone); // Clone the file_id for each task
-                    let child_task = tokio::spawn(async move {
-                        let _permit = semaphore_clone.acquire().await.unwrap();
-                        let start = Instant::now();
-                        // println!("Processing Child: {} \nAvailable permits: {}", child.sku, semaphore_clone.available_permits());
-                        // print child sku and avaliable permit in purple
-                        println!("\x1b[35mProcessing Child: {} \n\x1b[0m", child.sku);
-
-                        // let _permit = semaphore_clone.acquire().await.unwrap();
-                        println!("permit acquired for child: {}", child.sku);
-
-                        let mut redis_conn =
-                            match redis_client_clone.get_multiplexed_async_connection().await {
-                                Ok(conn) => conn,
-                                Err(e) => {
-                                    println!("Redis connection error: {:?}", e);
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.failed_rows += 1;
-                                    progress.processed_rows += 1;
-                                    return;
-                                }
-                            };
-                        if let None =
-                            Self::compare_product_variation_last_instance(&child, &mut redis_conn)
-                                .await
-                        {
-                            match new_self_clone
-                                .handle_variation_product(
-                                    &child,
-                                    &parent_id_clone,
-                                    &mut redis_conn,
-                                    &new_product,
-                                )
-                                .await
-                            {
-                                Ok(updated_child) => {
-                                    println!(
-                                        "Child processed successfully: {:?} with parent_id: {:?}",
-                                        updated_child, parent_id_clone
-                                    );
-                                    // parent_id = updated_parent.id.clone();
-                                    let json_body = serde_json::to_string(&updated_child)
-                                        .unwrap_or("{}".to_string());
-                                    let _: () = redis_conn
-                                        .hset("products", &updated_child.sku, json_body)
-                                        .await
-                                        .unwrap_or(());
-                                    // TODO:what i added newly
-                                    let saved_json_body =
-                                        serde_json::to_string(&child).unwrap_or("{}".to_string());
-                                    let _: () = redis_conn
-                                        .hset(
-                                            "products:sha",
-                                            &updated_child.sku,
-                                            calculate_hash(saved_json_body),
-                                        )
-                                        .await
-                                        .unwrap_or(());
-                                    let _: () = redis_conn
-                                        .hset(
-                                            "products:id",
-                                            &updated_child.sku,
-                                            updated_child.id.clone(),
-                                        )
-                                        .await
-                                        .unwrap_or(());
-                                    FileProcessingManager::increment_progress(
-                                        file_id_clone.as_str(),
-                                        total_row_count,
-                                    )
-                                    .await
-                                    .unwrap_or(());
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.successful_rows += 1;
-                                    progress.processed_rows += 1;
-                                }
-                                Err(e) => {
-                                    println!("Error processing child: {:?}", e);
-                                    FileProcessingManager::increment_progress(
-                                        file_id_clone.as_str(),
-                                        total_row_count,
-                                    )
-                                    .await
-                                    .unwrap_or(());
-                                    let mut progress = progress_clone.lock().await;
-                                    progress.failed_rows += 1;
-                                    progress.processed_rows += 1;
-                                    // return;
-                                }
-                            };
-                        }
-                        // print available permits
-                        let duration = start.elapsed();
-                        println!(
-                            "\x1b[97;48;5;42mTime taken for child {}: {:?}\x1b[0m",
-                            child.sku, duration
-                        );
-                    });
-                    child_futures.push(child_task);
-                }
-                // Wait for all children to complete
-                for child_task in child_futures {
-                    if let Err(e) = child_task.await {
-                        println!("Child task error: {:?}", e);
-                        let mut progress = progress_clone.lock().await;
-                        progress.failed_rows += 1;
-                        progress.processed_rows += 1;
-                    } else {
-                        count += 1;
-                    }
-                }
-                let duration = start.elapsed();
-                println!(
-                    "\x1b[97;48;5;42mTime taken for parent {}: {:?}\x1b[0m",
-                    parent.sku, duration
-                );
-            });
-            parent_futures.push(parent_task);
+        // Process standalone products in batches
+        if !products_without_children.is_empty() {
+            self.process_standalone_products(products_without_children, new_product)
+                .await?;
         }
 
-        // futures::future::join_all(parent_futures).await;
-        // Mark as done only if we processed all requested rows successfully
-        // if completed_count == processed_count {
-        // }
+        // Process products with variations
+        self.process_products_with_variations(products_with_children, new_product)
+            .await?;
 
-        let mut completed_count = 0;
-        for task in parent_futures {
-            if let Err(e) = task.await {
-                println!("Task error: {:?}", e);
-                FileProcessingManager::mark_as_failed(file_id.as_str())
-                    .await
-                    .unwrap_or(());
-            } else {
-                completed_count += 1;
-            }
-        }
-        FileProcessingManager::mark_progress(&file_id, 100, 100)
-            .await
-            .unwrap_or(());
-        FileProcessingManager::mark_as_done(&_file_id)
-            .await
-            .unwrap_or(());
+        // Finalize processing
+        self.finalizing().await?;
+        self.complete_processing().await?;
 
+        println!(
+            "{}",
+            format!("✨ Processing completed successfully for: {}", file_path)
+                .bright_green()
+                .bold()
+        );
         Ok(())
     }
 
@@ -686,6 +488,307 @@ impl WooCommerceProcessor {
             // println!("SKU mismatch: expected {}, found {}", sku, product.sku);
         }
         None
+    }
+
+    async fn process_standalone_products(
+        self: &Arc<Self>,
+        standalone_products_data: Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
+        new_product: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let standalone_products: Vec<WooCommerceProduct> = standalone_products_data
+            .into_iter()
+            .map(|(parent, _)| parent)
+            .collect();
+
+        let batch_size = 50;
+        let batches: Vec<Vec<WooCommerceProduct>> = standalone_products
+            .chunks(batch_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        println!(
+            "{}",
+            format!(
+                "📦 Processing {} standalone products in {} batches",
+                standalone_products.len(),
+                batches.len()
+            )
+            .cyan()
+        );
+
+        for (batch_index, batch) in batches.clone().into_iter().enumerate() {
+            let batch_len = batch.len();
+
+            // Update progress for this batch
+            self.start_processing_product(
+                format!("Batch {}", batch_index + 1),
+                batch_index + 1,
+                batches.len(),
+            )
+            .await?;
+
+            let batch_tuple = if new_product {
+                (batch, Vec::new())
+            } else {
+                (Vec::new(), batch)
+            };
+
+            match self.batch_update_products(batch_tuple).await {
+                Ok(_) => {
+                    println!(
+                        "{}",
+                        format!(
+                            "✅ Batch {} processed successfully ({} products)",
+                            batch_index + 1,
+                            batch_len
+                        )
+                        .green()
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "{}",
+                        format!("❌ Batch {} processing failed: {:?}", batch_index + 1, e).red()
+                    );
+
+                    self.mark_failure(0, format!("Batch {} failed: {}", batch_index + 1, e), None)
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn process_products_with_variations(
+        self: &Arc<Self>,
+        products_with_children: Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
+        new_product: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let total_products = products_with_children.len();
+        let semaphore = Arc::new(Semaphore::new(100));
+        let mut parent_futures = Vec::new();
+
+        println!(
+            "{}",
+            format!("👨‍👩‍👧‍👦 Processing {} products with variations", total_products).blue()
+        );
+
+        for (index, (parent, children)) in products_with_children.into_iter().enumerate() {
+            let current_index = index + 1;
+
+            // Update progress
+            self.start_processing_product(parent.sku.clone(), current_index, total_products)
+                .await?;
+
+            let semaphore_clone = Arc::clone(&semaphore);
+            let self_clone = Arc::clone(self);
+
+            let parent_task = tokio::spawn(async move {
+                let _permit = semaphore_clone.acquire().await.unwrap();
+                let start_time = Instant::now();
+
+                let mut redis_conn = match self_clone
+                    .redis_client
+                    .get_multiplexed_async_connection()
+                    .await
+                {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        println!("{}", format!("Redis connection error: {:?}", e).red());
+                        self_clone
+                            .mark_failure(
+                                0,
+                                format!("Redis connection failed: {}", e),
+                                Some(parent.sku.clone()),
+                            )
+                            .await
+                            .unwrap_or(());
+                        return;
+                    }
+                };
+
+                // Check for existing product first
+                let mut parent_id = parent.id.clone();
+                if let Some(prod_id) =
+                    Self::compare_product_last_instance(&parent, &mut redis_conn).await
+                {
+                    parent_id = prod_id;
+                    println!(
+                        "{}",
+                        format!("♻️ Reusing existing parent: {}", parent.sku).yellow()
+                    );
+                } else {
+                    // Process parent product
+                    match self_clone
+                        .handle_main_product(&parent, &mut redis_conn, &new_product)
+                        .await
+                    {
+                        Ok(updated_parent) => {
+                            parent_id = updated_parent.id.clone();
+
+                            // Cache the result
+                            let json_body =
+                                serde_json::to_string(&updated_parent).unwrap_or("{}".to_string());
+                            let _: () = redis_conn
+                                .hset("products", &updated_parent.sku, json_body)
+                                .await
+                                .unwrap_or(());
+                            let saved_json_body =
+                                serde_json::to_string(&parent).unwrap_or("{}".to_string());
+                            let _: () = redis_conn
+                                .hset(
+                                    "products:sha",
+                                    &updated_parent.sku,
+                                    calculate_hash(saved_json_body),
+                                )
+                                .await
+                                .unwrap_or(());
+                            let _: () = redis_conn
+                                .hset(
+                                    "products:id",
+                                    &updated_parent.sku,
+                                    updated_parent.id.clone(),
+                                )
+                                .await
+                                .unwrap_or(());
+
+                            // Mark parent as processed
+                            self_clone
+                                .mark_product_processed(
+                                    parent.sku.clone(),
+                                    ProductProcessType::Parent,
+                                    current_index,
+                                    start_time,
+                                )
+                                .await
+                                .unwrap_or(());
+
+                            println!("{}", format!("✅ Parent processed: {}", parent.sku).green());
+                        }
+                        Err(e) => {
+                            println!(
+                                "{}",
+                                format!("❌ Parent failed: {} - {}", parent.sku, e).red()
+                            );
+                            self_clone
+                                .mark_failure(
+                                    current_index,
+                                    format!("Parent processing failed: {}", e),
+                                    Some(parent.sku.clone()),
+                                )
+                                .await
+                                .unwrap_or(());
+                            return;
+                        }
+                    }
+                }
+
+                // Process child variations
+                for (child_index, child) in children.iter().enumerate() {
+                    let child_start = Instant::now();
+
+                    // Update progress for variation
+                    self_clone
+                        .start_processing_variation(
+                            child.sku.clone(),
+                            child_index + 1,
+                            children.len(),
+                        )
+                        .await
+                        .unwrap_or(());
+
+                    // Check for existing variation first
+                    if let Some(_existing_id) =
+                        Self::compare_product_variation_last_instance(child, &mut redis_conn).await
+                    {
+                        println!(
+                            "{}",
+                            format!("♻️ Reusing existing variation: {}", child.sku).yellow()
+                        );
+                        continue;
+                    }
+
+                    match self_clone
+                        .handle_variation_product(child, &parent_id, &mut redis_conn, &new_product)
+                        .await
+                    {
+                        Ok(updated_child) => {
+                            // Cache the result
+                            let json_body =
+                                serde_json::to_string(&updated_child).unwrap_or("{}".to_string());
+                            let _: () = redis_conn
+                                .hset("products", &updated_child.sku, json_body)
+                                .await
+                                .unwrap_or(());
+                            let saved_json_body =
+                                serde_json::to_string(&child).unwrap_or("{}".to_string());
+                            let _: () = redis_conn
+                                .hset(
+                                    "products:sha",
+                                    &updated_child.sku,
+                                    calculate_hash(saved_json_body),
+                                )
+                                .await
+                                .unwrap_or(());
+                            let _: () = redis_conn
+                                .hset("products:id", &updated_child.sku, updated_child.id.clone())
+                                .await
+                                .unwrap_or(());
+
+                            // Mark variation as processed
+                            self_clone
+                                .mark_product_processed(
+                                    child.sku.clone(),
+                                    ProductProcessType::Child,
+                                    0, // We don't have exact row number in this context
+                                    child_start,
+                                )
+                                .await
+                                .unwrap_or(());
+
+                            println!(
+                                "{}",
+                                format!(
+                                    "✅ Variation processed: {} ({}/{})",
+                                    child.sku,
+                                    child_index + 1,
+                                    children.len()
+                                )
+                                .green()
+                            );
+                        }
+                        Err(e) => {
+                            println!(
+                                "{}",
+                                format!("❌ Variation failed: {} - {}", child.sku, e).red()
+                            );
+                            self_clone
+                                .mark_failure(
+                                    0,
+                                    format!("Variation processing failed: {}", e),
+                                    Some(child.sku.clone()),
+                                )
+                                .await
+                                .unwrap_or(());
+                        }
+                    }
+                }
+            });
+
+            parent_futures.push(parent_task);
+        }
+
+        // Wait for all tasks to complete
+        for task in parent_futures {
+            if let Err(e) = task.await {
+                println!("{}", format!("Task execution error: {:?}", e).red());
+                self.mark_failure(0, format!("Task execution failed: {}", e), None)
+                    .await?;
+            }
+        }
+
+        Ok(())
     }
 
     async fn handle_main_product(
@@ -873,16 +976,14 @@ impl WooCommerceProcessor {
         headers: &csv::StringRecord,
         reverse_mapping: &HashMap<String, String>,
         attribute_reverse: &HashMap<String, AttributeMapping>,
-    ) -> Result<
-        Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<GroupParentResult, Box<dyn std::error::Error + Send + Sync>> {
         // HashMap to store parent SKU/ID -> vector of children
         let mut parent_children_map: std::collections::HashMap<String, Vec<ProductVariation>> =
             std::collections::HashMap::new();
 
         // Vector to store parent products
         let mut parent_products: Vec<WooCommerceProduct> = Vec::new();
+        let mut result = GroupParentResult::new();
 
         println!(
             "\x1b[38;5;82mReverse Mapping Debug Info: {:?}\x1b[0m",
@@ -893,11 +994,15 @@ impl WooCommerceProcessor {
             attribute_reverse
         );
 
+        let mut row_number = 0;
+
         // Process each record once - O(n) single pass
-        for record_result in records {
+        for record_result in records.iter() {
+            row_number += 1;
             let record = match record_result {
                 Ok(record) => record,
                 Err(e) => {
+                    result.add_failed_row(row_number, format!("Error processing record: {:?}", e));
                     println!("Error processing record: {:?}", e);
                     continue;
                 }
@@ -935,12 +1040,12 @@ impl WooCommerceProcessor {
                 .collect();
 
             println!(
-                "\x1b[38;5;45mProduct HashMap Debug Info: {:?}\x1b[0m",
-                row_map
+                "{}",
+                format!("Product HashMap Debug Info: {:?}", row_map).green(),
             );
             println!(
-                "\x1b[38;5;208mProduct HashMap Debug Info: {:?}\x1b[0m",
-                attribute_row_map
+                "{}",
+                format!("Product HashMap Debug Info: {:?}", attribute_row_map).blue()
             );
 
             // Build product from row_map using the new woo_build_product function
@@ -966,6 +1071,10 @@ impl WooCommerceProcessor {
                         .push(variation);
                 }
                 None => {
+                    result.add_failed_row(
+                        row_number,
+                        "Error building product from record".to_string(),
+                    );
                     println!("Error building product from record");
                     continue;
                 }
@@ -973,7 +1082,7 @@ impl WooCommerceProcessor {
         }
 
         // Create the final result structure - O(p) where p is number of parents
-        let result: Vec<(WooCommerceProduct, Vec<ProductVariation>)> = parent_products
+        let groups_result: Vec<(WooCommerceProduct, Vec<ProductVariation>)> = parent_products
             .into_iter()
             .map(|mut parent| {
                 let mut children = parent_children_map
@@ -1017,6 +1126,7 @@ impl WooCommerceProcessor {
             })
             .collect();
 
+        result.add_many_group(groups_result);
         Ok(result)
     }
 
@@ -1114,15 +1224,15 @@ impl WooCommerceProcessor {
         products: (Vec<WooCommerceProduct>, Vec<WooCommerceProduct>),
     ) -> Result<BatchProductResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (create_products, update_products) = products;
-        
+
         let batch_request = BatchProductRequest {
             create: create_products,
             update: update_products,
         };
-        
+
         let json_body = serde_json::to_string(&batch_request)?;
         println!("Batch update JSON body: {}", json_body);
-        
+
         let res = self
             .woocommerce_client
             .post(&format!("{}/wp-json/wc/v3/products/batch", self.base_url))
@@ -1131,12 +1241,12 @@ impl WooCommerceProcessor {
             .header("Content-Type", "application/json")
             .send()
             .await?;
-        
+
         let body = res.text().await?;
         println!("Response body from batch_update_products: {}", body);
-        
+
         let response: BatchProductResponse = serde_json::from_str(&body)?;
-        
+
         Ok(response)
     }
 
@@ -1332,10 +1442,6 @@ impl WooCommerceProcessor {
         Ok(product)
     }
 
-    async fn get_progress(&self) -> ProcessingProgress {
-        self.progress.lock().await.clone()
-    }
-
     async fn get_or_fetch_product(
         &self,
         redis_conn: &mut MultiplexedConnection,
@@ -1463,52 +1569,52 @@ pub async fn process_woocommerce_csv(file_queue: NewFileProcessQueue) -> Result<
     let base_url = &file_queue.site_details.url;
     let consumer_key = &file_queue.site_details.key;
     let consumer_secret = &file_queue.site_details.secret;
+    let file_path = &file_queue.file;
+    let file_id = file_path.split('.').next().unwrap_or("").to_string();
 
     println!("Processing CSV: {:?}", file_queue);
-    println!("Base URL: {}", base_url);
-    println!("Consumer Key: {}", consumer_key);
 
-    let processor = WooCommerceProcessor::new(
-        base_url.to_owned(),
-        consumer_key.to_owned(),
-        consumer_secret.to_owned(),
-    )
-    .await;
-    println!("Processor created");
-    println!("Processing CSV file...");
+    // Count total rows first
+    let mut rdr = Reader::from_path(get_upload_path(file_path)).map_err(|e| format!("Failed to read CSV: {}", e))?;
+    let total_row_count: u32 = rdr.records().count().try_into().unwrap();
+    
+    let rows_to_process = if file_queue.row_count == 0 {
+        total_row_count - file_queue.start_row
+    } else {
+        file_queue.row_count.min(total_row_count - file_queue.start_row)
+    };
+    let rows_to_process = rows_to_process.min(40_000);
+
+    // Create processor with ProcessingResult initialized
+    let processor = Arc::new(
+        WooCommerceProcessor::new(
+            base_url.to_owned(),
+            consumer_key.to_owned(),
+            consumer_secret.to_owned(),
+            file_path.to_string(),
+            file_id,
+            rows_to_process as usize,
+        ).await.map_err(|e| format!("Failed to create processor: {}", e))?
+    );
 
     let start = Instant::now();
-    let r = match processor
+    let result = processor
         .process_csv(
-            &file_queue.file,
+            file_path,
             &file_queue.wordpress_field_mapping,
             &file_queue,
         )
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Error processing CSV: {}", e)),
-    };
+        .await;
 
     let duration = start.elapsed();
+    println!("{}", format!("Total time taken for processing: {:?}", duration).on_purple().yellow());
 
-    // Define the background and text color
-    let bg_color = "\x1b[48;5;131m"; // Purple background
-    let text_color = "\x1b[38;5;220m"; // Light Yellow text
-
-    // Calculate padding based on terminal width
-    let terminal_width = 80; // Adjust this based on your terminal size
-    let message = format!("Total time taken for processing: {:?}", duration);
-
-    // Padding calculation
-    let padding_size = (terminal_width - message.len()) / 2;
-    let padding = " ".repeat(padding_size);
-
-    // Print the padded and styled message
-    println!(
-        "{}{}{}{}{}",
-        padding, bg_color, text_color, message, "\x1b[0m"
-    );
-
-    r
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Mark processing as failed
+            processor.fail_processing(e.to_string()).await.unwrap_or(());
+            Err(format!("Error processing CSV: {}", e))
+        }
+    }
 }
