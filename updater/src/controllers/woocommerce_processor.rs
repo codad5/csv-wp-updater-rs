@@ -1,5 +1,6 @@
 use crate::helper::file_helper::get_upload_path;
 use crate::helper::{calculate_hash, clean_string};
+use crate::libs::processing_result::FailedRow;
 use crate::libs::redis::FileProcessingManager;
 use crate::types::csv_field_woo_mapper::{AttributeMapping, WordPressFieldMapping};
 use crate::types::woocommerce::{
@@ -31,13 +32,6 @@ use crate::libs::{
 pub enum ProcessingStatus {
     Success,
     Failure,
-}
-
-// custom type for failed row that holds the number and reason for failure
-#[derive(Debug, Clone)]
-pub struct FailedRow {
-    pub row_number: usize,
-    pub reason: String,
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +73,11 @@ impl GroupParentResult {
     }
 
     pub fn add_failed_row(&mut self, row_number: usize, reason: String) {
-        self.failed.push(FailedRow { row_number, reason });
+        self.failed.push(FailedRow {
+            row_number,
+            reason,
+            sku: None,
+        });
     }
 }
 
@@ -1575,13 +1573,16 @@ pub async fn process_woocommerce_csv(file_queue: NewFileProcessQueue) -> Result<
     println!("Processing CSV: {:?}", file_queue);
 
     // Count total rows first
-    let mut rdr = Reader::from_path(get_upload_path(file_path)).map_err(|e| format!("Failed to read CSV: {}", e))?;
+    let mut rdr = Reader::from_path(get_upload_path(file_path))
+        .map_err(|e| format!("Failed to read CSV: {}", e))?;
     let total_row_count: u32 = rdr.records().count().try_into().unwrap();
-    
+
     let rows_to_process = if file_queue.row_count == 0 {
         total_row_count - file_queue.start_row
     } else {
-        file_queue.row_count.min(total_row_count - file_queue.start_row)
+        file_queue
+            .row_count
+            .min(total_row_count - file_queue.start_row)
     };
     let rows_to_process = rows_to_process.min(40_000);
 
@@ -1594,20 +1595,23 @@ pub async fn process_woocommerce_csv(file_queue: NewFileProcessQueue) -> Result<
             file_path.to_string(),
             file_id,
             rows_to_process as usize,
-        ).await.map_err(|e| format!("Failed to create processor: {}", e))?
+        )
+        .await
+        .map_err(|e| format!("Failed to create processor: {}", e))?,
     );
 
     let start = Instant::now();
     let result = processor
-        .process_csv(
-            file_path,
-            &file_queue.wordpress_field_mapping,
-            &file_queue,
-        )
+        .process_csv(file_path, &file_queue.wordpress_field_mapping, &file_queue)
         .await;
 
     let duration = start.elapsed();
-    println!("{}", format!("Total time taken for processing: {:?}", duration).on_purple().yellow());
+    println!(
+        "{}",
+        format!("Total time taken for processing: {:?}", duration)
+            .on_purple()
+            .yellow()
+    );
 
     match result {
         Ok(_) => Ok(()),

@@ -27,6 +27,7 @@ export interface ProcessingProgress {
   file_id: string;
   percent: number;
   stage: ProcessingStage;
+  stage_message: string;
   total_rows: number;
   processed_rows: number;
   successful_rows: number;
@@ -41,6 +42,7 @@ export interface ProgressResponse {
   status: "processing" | "completed" | "failed" | "not_found";
   message: string;
   stage?: ProcessingStage;
+  stage_message: string;
   totalEntries?: number;
   processedEntries?: number;
   successfulEntries?: number;
@@ -79,6 +81,7 @@ export class ProgressService extends BaseRedisService {
         id: fileId,
         progress: 0,
         status: "not_found",
+        stage_message: "Not found",
         message: "File processing not found",
       };
     }
@@ -99,12 +102,22 @@ export class ProgressService extends BaseRedisService {
         detailedProgress.start_time
       );
 
+    // if progress is 100% clear the cache key
+    if (
+      detailedProgress.percent >= 100 ||
+      status === "completed" ||
+      status === "failed"
+    ) {
+      await this.redis.del(`${this.prefix}:${fileId}`);
+    }
+
     return {
       id: fileId,
       progress: Math.round(detailedProgress.percent * 100) / 100, // Round to 2 decimal places
       status,
       message: detailedProgress.stage.message,
       stage: detailedProgress.stage,
+      stage_message: detailedProgress.stage_message ?? "Processing",
       totalEntries: detailedProgress.total_rows,
       processedEntries: detailedProgress.processed_rows,
       successfulEntries: detailedProgress.successful_rows,

@@ -109,17 +109,6 @@ export interface RustTimestamp {
   nanos_since_epoch: number;
 }
 
-export interface ProcessingProgress {
-  file_id: string;
-  percent: number;
-  stage: ProcessingStage | string; // Allow string for simple "Completed" format
-  total_rows: number;
-  processed_rows: number;
-  successful_rows: number;
-  failed_rows: number;
-  start_time: RustTimestamp; // Changed from string to RustTimestamp
-  last_updated: RustTimestamp; // Changed from string to RustTimestamp
-}
 export interface ReportDetailsResponse {
   report: ProcessingProgress;
 }
@@ -129,6 +118,32 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data: T;
   message?: string;
+}
+
+// Replace the existing interfaces in your TypeScript file
+
+export interface FailedRowDetail {
+  row_number: number;
+  reason: string;
+}
+
+export interface FailedProductDetail {
+  sku: string;
+  reason: string;
+}
+
+export interface ProcessingProgress {
+  file_id: string;
+  percent: number;
+  stage: ProcessingStage | string;
+  total_rows: number;
+  processed_rows: number;
+  successful_rows: number;
+  failed_rows: number;
+  failed_row_details: FailedRowDetail[];        // NEW
+  failed_product_details: FailedProductDetail[]; // NEW
+  start_time: RustTimestamp;
+  last_updated: RustTimestamp;
 }
 
 // You can use these types like this:

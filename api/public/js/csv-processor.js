@@ -1312,9 +1312,12 @@ function trackProgress(id) {
     $.get(`/progress/${id}`, function (response) {
       let progress = response.data.progress;
       let status = response.data.status;
+      let status_message = response.data?.stage_message ?? null;
 
       $("#progressBar").css("width", progress + "%");
-      $("#progressText").text(`Progress: ${progress}% - ${status}`);
+      $("#progressText").text(
+        status_message || `Progress: ${progress}% - ${status}`
+      );
 
       if (status === "completed" || progress >= 100) {
         clearInterval(currentProgressInterval);
@@ -1637,6 +1640,8 @@ function viewReportDetails(fileId) {
   });
 }
 
+// In your main JavaScript file - Update the displayReportDetailsModal function
+
 function displayReportDetailsModal(reportData) {
   const content = $("#report-details-content");
 
@@ -1647,6 +1652,64 @@ function displayReportDetailsModal(reportData) {
     reportData.start_time,
     reportData.last_updated
   );
+
+  // NEW: Generate failed items details
+  const failedRowsHtml =
+    reportData.failed_row_details && reportData.failed_row_details.length > 0
+      ? `
+      <div class="failed-items-section">
+        <h5>❌ Failed Rows (${reportData.failed_row_details.length})</h5>
+        <div class="failed-items-list">
+          ${reportData.failed_row_details
+            .slice(0, 10)
+            .map(
+              (item) =>
+                `<div class="failed-item">
+              <strong>Row ${item.row_number}:</strong> ${item.reason}
+            </div>`
+            )
+            .join("")}
+          ${
+            reportData.failed_row_details.length > 10
+              ? `<div class="failed-item-more">... and ${
+                  reportData.failed_row_details.length - 10
+                } more</div>`
+              : ""
+          }
+        </div>
+      </div>
+    `
+      : "";
+
+  const failedProductsHtml =
+    reportData.failed_product_details &&
+    reportData.failed_product_details.length > 0
+      ? `
+      <div class="failed-items-section">
+        <h5>🛍️ Failed Products (${
+          reportData.failed_product_details.length
+        })</h5>
+        <div class="failed-items-list">
+          ${reportData.failed_product_details
+            .slice(0, 10)
+            .map(
+              (item) =>
+                `<div class="failed-item">
+              <strong>SKU ${item.sku}:</strong> ${item.reason}
+            </div>`
+            )
+            .join("")}
+          ${
+            reportData.failed_product_details.length > 10
+              ? `<div class="failed-item-more">... and ${
+                  reportData.failed_product_details.length - 10
+                } more</div>`
+              : ""
+          }
+        </div>
+      </div>
+    `
+      : "";
 
   const html = `
     <div class="report-section">
@@ -1670,6 +1733,9 @@ function displayReportDetailsModal(reportData) {
         </div>
       </div>
     </div>
+    
+    ${failedRowsHtml}
+    ${failedProductsHtml}
     
     <div class="report-section">
       <h4>⏱️ Timing Information</h4>

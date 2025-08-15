@@ -162,22 +162,7 @@ impl ProcessingResult {
         self.total_products = total_products;
     }
 
-    pub async fn mark_failure(&mut self, row_number: usize, reason: String, sku: Option<String>) {
-        self.status = ProcessingStatus::Failure;
-        self.failed_row.push(FailedRow { row_number, reason: reason.clone(), sku: sku.clone() });
-        
-        // Update progress
-        self.progress_manager.increment_progress(&self.file_id, false).await.unwrap_or_else(|e| {
-            println!("{}", format!("Failed to update progress: {}", e).red());
-        });
 
-        println!("{}", format!(
-            "❌ Row {} failed: {} (SKU: {:?})", 
-            row_number, 
-            reason,
-            sku.unwrap_or_default()
-        ).red());
-    }
 
     pub async fn mark_row_processed(&mut self, row_number: usize, processing_start: Instant) {
         let processing_time = processing_start.elapsed();
@@ -301,5 +286,35 @@ impl ProcessingResult {
             },
             processing_duration: self.processing_time,
         }
+    }
+}
+
+// In processing_result.rs - Update these methods
+
+impl ProcessingResult {
+    // REPLACE the existing mark_failure method
+    pub async fn mark_failure(&mut self, row_number: usize, reason: String, sku: Option<String>) {
+        self.status = ProcessingStatus::Failure;
+        
+        // Add to progress manager with detailed info
+        self.progress_manager.add_failed_row(&self.file_id, row_number, reason.clone()).await.unwrap_or_else(|e| {
+            println!("{}", format!("Failed to update failed row progress: {}", e).red());
+        });
+        
+        if let Some(product_sku) = sku.clone() {
+            self.progress_manager.add_failed_product(&self.file_id, product_sku, reason.clone()).await.unwrap_or_else(|e| {
+                println!("{}", format!("Failed to update failed product progress: {}", e).red());
+            });
+        }
+
+        // Keep existing failed_row for backward compatibility if needed
+        self.failed_row.push(FailedRow { row_number, reason: reason.clone(), sku:sku.clone() });
+        
+        println!("{}", format!(
+            "❌ Row {} failed: {} (SKU: {:?})", 
+            row_number, 
+            reason,
+            sku.unwrap_or_default()
+        ).red());
     }
 }

@@ -6,6 +6,19 @@ use tokio::sync::OnceCell;
 
 static REDIS_CLIENT: OnceCell<Client> = OnceCell::const_new();
 
+// Add these new structs to your processing_result.rs or progress_manager.rs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedRowDetail {
+    pub row_number: usize,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedProductDetail {
+    pub sku: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProcessingStage {
     Starting,
@@ -68,15 +81,19 @@ impl ProcessingStage {
     }
 }
 
+// In progress_manager.rs - Update ProcessingProgress
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessingProgress {
     pub file_id: String,
     pub percent: f32,
     pub stage: ProcessingStage,
+    pub stage_message: String, // NEW - Add this field
     pub total_rows: usize,
     pub processed_rows: usize,
     pub successful_rows: usize,
     pub failed_rows: usize,
+    pub failed_row_details: Vec<FailedRowDetail>, // NEW
+    pub failed_product_details: Vec<FailedProductDetail>, // NEW
     pub start_time: std::time::SystemTime,
     pub last_updated: std::time::SystemTime,
 }
@@ -88,16 +105,20 @@ impl ProcessingProgress {
             file_id,
             percent: 0.0,
             stage: ProcessingStage::Starting,
+            stage_message: ProcessingStage::Starting.to_message(), // NEW
             total_rows,
             processed_rows: 0,
             successful_rows: 0,
             failed_rows: 0,
+            failed_row_details: Vec::new(),     // NEW
+            failed_product_details: Vec::new(), // NEW
             start_time: now,
             last_updated: now,
         }
     }
 
     pub fn update_stage(&mut self, stage: ProcessingStage) {
+        self.stage_message = stage.to_message();
         self.stage = stage;
         self.last_updated = std::time::SystemTime::now();
 
@@ -296,5 +317,42 @@ impl ProgressManager {
             )),
             Err(_) => Ok(false),
         }
+    }
+}
+
+impl ProgressManager {
+    // NEW METHOD - Add failed row detail
+    pub async fn add_failed_row(
+        &self,
+        file_id: &str,
+        row_number: usize,
+        reason: String,
+    ) -> RedisResult<()> {
+        if let Ok(mut progress) = self.get_progress(file_id).await {
+            progress.failed_rows += 1;
+            progress
+                .failed_row_details
+                .push(FailedRowDetail { row_number, reason });
+            progress.last_updated = std::time::SystemTime::now();
+            self.save_progress(&progress).await?;
+        }
+        Ok(())
+    }
+
+    // NEW METHOD - Add failed product detail
+    pub async fn add_failed_product(
+        &self,
+        file_id: &str,
+        sku: String,
+        reason: String,
+    ) -> RedisResult<()> {
+        if let Ok(mut progress) = self.get_progress(file_id).await {
+            progress
+                .failed_product_details
+                .push(FailedProductDetail { sku, reason });
+            progress.last_updated = std::time::SystemTime::now();
+            self.save_progress(&progress).await?;
+        }
+        Ok(())
     }
 }
