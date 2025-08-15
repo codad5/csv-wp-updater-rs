@@ -1378,8 +1378,6 @@ function showFinalReport(fileId) {
         </div>
       `;
 
-      // Insert the summary above the existing results
-      // Insert the summary above the existing results
       $("#processingResults").before(finalSummary);
     },
     error: function (error) {
@@ -1466,7 +1464,7 @@ function displayFilesList() {
         <br><small>ID: ${file.id}</small>
       </td>
       <td class="file-size">${formatFileSize(file.size)}</td>
-      <td class="date-formatted">${formatDate(file.uploadedAt)}</td>
+      <td class="date-formatted">${formatDateSafe(file.uploadedAt)}</td>
       <td>
         <div class="table-actions">
           <button class="btn-small btn-view" onclick="useFileForProcessing('${
@@ -1592,7 +1590,7 @@ function displayReportsList() {
         <td>
           <small>View details for stats</small>
         </td>
-        <td class="date-formatted">${formatDate(report.createdAt)}</td>
+        <td class="date-formatted">${formatDateSafe(report.createdAt)}</td>
         <td>
           <div class="table-actions">
             <button class="btn-small btn-view" onclick="viewReportDetails('${
@@ -1642,10 +1640,13 @@ function viewReportDetails(fileId) {
 function displayReportDetailsModal(reportData) {
   const content = $("#report-details-content");
 
-  // Calculate durations and format data
-  const startTime = new Date(reportData.start_time);
-  const endTime = new Date(reportData.last_updated);
-  const duration = formatDuration(endTime - startTime);
+  // Use safe formatting functions
+  const startTimeFormatted = formatDateTimeSafe(reportData.start_time);
+  const endTimeFormatted = formatDateTimeSafe(reportData.last_updated);
+  const duration = formatDurationSafe(
+    reportData.start_time,
+    reportData.last_updated
+  );
 
   const html = `
     <div class="report-section">
@@ -1672,16 +1673,16 @@ function displayReportDetailsModal(reportData) {
     
     <div class="report-section">
       <h4>⏱️ Timing Information</h4>
-      <p><strong>Started:</strong> ${formatDateTime(startTime)}</p>
-      <p><strong>Completed:</strong> ${formatDateTime(endTime)}</p>
+      <p><strong>Started:</strong> ${startTimeFormatted}</p>
+      <p><strong>Completed:</strong> ${endTimeFormatted}</p>
       <p><strong>Duration:</strong> ${duration}</p>
     </div>
     
     <div class="report-section">
       <h4>📊 Current Stage</h4>
       <p><strong>Status:</strong> ${
-        reportData.stage.Completed
-          ? "Completed"
+        typeof reportData.stage === "string"
+          ? reportData.stage
           : JSON.stringify(reportData.stage)
       }</p>
     </div>
@@ -1772,3 +1773,86 @@ $(document).ready(function () {
   loadFilesList();
   loadReportsList();
 });
+
+// Utility function to convert Rust timestamp to JavaScript Date
+function rustTimestampToDate(rustTimestamp) {
+  if (!rustTimestamp || typeof rustTimestamp !== "object") {
+    return new Date(); // Return current date as fallback
+  }
+
+  // Convert seconds to milliseconds and add nanoseconds converted to milliseconds
+  const milliseconds =
+    rustTimestamp.secs_since_epoch * 1000 +
+    rustTimestamp.nanos_since_epoch / 1000000;
+  return new Date(milliseconds);
+}
+
+// Enhanced format functions that handle both string and Rust timestamp formats
+function formatDateSafe(dateInput) {
+  let date;
+
+  if (typeof dateInput === "string") {
+    date = new Date(dateInput);
+  } else if (typeof dateInput === "object" && dateInput.secs_since_epoch) {
+    date = rustTimestampToDate(dateInput);
+  } else {
+    return "Invalid Date";
+  }
+
+  if (isNaN(date.getTime())) {
+    return "Invalid Date";
+  }
+
+  return (
+    date.toLocaleDateString() +
+    " " +
+    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
+function formatDateTimeSafe(dateInput) {
+  let date;
+
+  if (typeof dateInput === "string") {
+    date = new Date(dateInput);
+  } else if (typeof dateInput === "object" && dateInput.secs_since_epoch) {
+    date = rustTimestampToDate(dateInput);
+  } else {
+    return "Invalid Date";
+  }
+
+  if (isNaN(date.getTime())) {
+    return "Invalid Date";
+  }
+
+  return date.toLocaleDateString() + " at " + date.toLocaleTimeString();
+}
+
+function formatDurationSafe(startTime, endTime) {
+  let startDate, endDate;
+
+  // Handle start time
+  if (typeof startTime === "string") {
+    startDate = new Date(startTime);
+  } else if (typeof startTime === "object" && startTime.secs_since_epoch) {
+    startDate = rustTimestampToDate(startTime);
+  } else {
+    return "Invalid Duration";
+  }
+
+  // Handle end time
+  if (typeof endTime === "string") {
+    endDate = new Date(endTime);
+  } else if (typeof endTime === "object" && endTime.secs_since_epoch) {
+    endDate = rustTimestampToDate(endTime);
+  } else {
+    return "Invalid Duration";
+  }
+
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    return "Invalid Duration";
+  }
+
+  const milliseconds = endDate - startDate;
+  return formatDuration(milliseconds);
+}

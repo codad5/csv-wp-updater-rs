@@ -104,18 +104,22 @@ export interface ProcessingStage {
   Failed?: string;
 }
 
+export interface RustTimestamp {
+  secs_since_epoch: number;
+  nanos_since_epoch: number;
+}
+
 export interface ProcessingProgress {
   file_id: string;
   percent: number;
-  stage: ProcessingStage;
+  stage: ProcessingStage | string; // Allow string for simple "Completed" format
   total_rows: number;
   processed_rows: number;
   successful_rows: number;
   failed_rows: number;
-  start_time: string; // ISO date string
-  last_updated: string; // ISO date string
+  start_time: RustTimestamp; // Changed from string to RustTimestamp
+  last_updated: RustTimestamp; // Changed from string to RustTimestamp
 }
-
 export interface ReportDetailsResponse {
   report: ProcessingProgress;
 }
