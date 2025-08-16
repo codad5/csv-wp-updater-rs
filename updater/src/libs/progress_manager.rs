@@ -181,14 +181,18 @@ impl ProcessingProgress {
             ProcessingStage::GroupingProducts => 10.0,
             ProcessingStage::GroupingProductsCompleted { .. } => 15.0,
             ProcessingStage::ProcessingProducts { current, total, .. } => {
-                15.0 + ((*current as f32 / *total as f32) * 70.0)
+                15.0 + ((*current as f32 / *total as f32) * 90.0)
             }
             ProcessingStage::ProcessingVariations { current, total, .. } => {
-                15.0 + ((*current as f32 / *total as f32) * 70.0)
+                15.0 + ((*current as f32 / *total as f32) * 90.0)
             }
             ProcessingStage::BatchStarted { .. } => self.percent, // Keep current percentage
             ProcessingStage::BatchPaused { .. } => self.percent,  // Keep current percentage
-            ProcessingStage::BatchCompleted { .. } => self.percent, // Keep current percentage
+            ProcessingStage::BatchCompleted {
+                batch_number,
+                total_batches,
+                ..
+            } => (*batch_number as f32 / *total_batches as f32) * 90.0,
             ProcessingStage::Finalizing => 90.0,
             ProcessingStage::Completed => 100.0,
             ProcessingStage::Failed(_) => self.percent, // Keep current percentage
@@ -341,11 +345,15 @@ impl ProgressManager {
 
     pub async fn set_progress_percent(&self, progress: &ProcessingProgress) -> RedisResult<()> {
         let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
-        conn.set_ex::<_, _, ()>(format!("progress:percent:{}", progress.file_id), progress.percent, 3600)
-            .await?;
+        conn.set_ex::<_, _, ()>(
+            format!("progress:percent:{}", progress.file_id),
+            progress.percent,
+            3600,
+        )
+        .await?;
         Ok(())
     }
-    
+
     pub async fn set_progress_percent_2(&self, file_id: &str, percent: f32) -> RedisResult<()> {
         if let Ok(mut progress) = self.get_progress(file_id).await {
             let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
