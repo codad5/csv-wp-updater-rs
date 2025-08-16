@@ -130,9 +130,8 @@ export class ProgressService extends BaseRedisService {
 
     // Clear cache if processing is complete
     if (
-      detailedProgress.percent >= 100 ||
-      status === "completed" ||
-      status === "failed"
+      detailedProgress.percent >= 100 &&
+      (status === "completed" || status === "failed")
     ) {
       await this.redis.del(`${this.prefix}:${fileId}`);
     }
