@@ -607,6 +607,7 @@ impl WooCommerceProcessor {
         let mut processed_products = 0;
         let semaphore = Arc::new(Semaphore::new(100));
         let mut parent_futures: Vec<(usize, tokio::task::JoinHandle<()>)> = Vec::new();
+        let total_batches = parent_futures.len();
 
         println!(
             "{}",
@@ -828,10 +829,12 @@ impl WooCommerceProcessor {
         }
 
         let mut current_batch_product_count = 0;
+        let mut current_batch_index = 0;
         let batch_size = self.batch_size as usize;
         let delay_minutes = self.batch_delay_minutes;
         // Wait for all tasks to complete
         for (product_count_in_group, task) in parent_futures {
+            current_batch_index += 1;
             // Check if adding this group would exceed batch size
             if current_batch_product_count + product_count_in_group > batch_size
                 && current_batch_product_count > 0
@@ -846,10 +849,23 @@ impl WooCommerceProcessor {
                 )
                         .yellow()
                     );
+                    self.pause_for_batch(
+                        current_batch_index,
+                        total_batches,
+                        self.batch_delay_minutes,
+                    )
+                    .await?;
                     tokio::time::sleep(Duration::from_secs(delay_minutes as u64 * 60)).await;
                 }
                 current_batch_product_count = 0; // Reset counter
             }
+
+            self.start_batch(
+                current_batch_index,
+                total_batches,
+                current_batch_product_count,
+            )
+            .await?;
 
             // Execute the task
             if let Err(e) = task.await {
