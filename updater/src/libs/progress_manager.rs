@@ -35,8 +35,25 @@ pub enum ProcessingStage {
     },
     ProcessingVariations {
         sku: String,
+        parent_sku: String,
         current: usize,
         total: usize,
+    },
+    BatchStarted {
+        batch_number: usize,
+        total_batches: usize,
+        products_in_batch: usize,
+    },
+    BatchPaused {
+        batch_number: usize,
+        total_batches: usize,
+        delay_minutes: u32,
+    },
+    BatchCompleted {
+        batch_number: usize,
+        total_batches: usize,
+        successful_products: usize,
+        failed_products: usize,
     },
     Finalizing,
     Completed,
@@ -69,10 +86,45 @@ impl ProcessingStage {
             }
             ProcessingStage::ProcessingVariations {
                 sku,
+                parent_sku,
                 current,
                 total,
             } => {
-                format!("Processing variation {} ({}/{})", sku, current, total)
+                format!(
+                    "Processing variation {} (parent: {}) ({}/{})",
+                    sku, parent_sku, current, total
+                )
+            }
+            ProcessingStage::BatchStarted {
+                batch_number,
+                total_batches,
+                products_in_batch,
+            } => {
+                format!(
+                    "Started processing batch {} of {} ({} products)",
+                    batch_number, total_batches, products_in_batch
+                )
+            }
+            ProcessingStage::BatchPaused {
+                batch_number,
+                total_batches,
+                delay_minutes,
+            } => {
+                format!(
+                    "Batch {} of {} completed. Pausing for {} minutes before next batch...",
+                    batch_number, total_batches, delay_minutes
+                )
+            }
+            ProcessingStage::BatchCompleted {
+                batch_number,
+                total_batches,
+                successful_products,
+                failed_products,
+            } => {
+                format!(
+                    "Batch {} of {} completed: {} successful, {} failed",
+                    batch_number, total_batches, successful_products, failed_products
+                )
             }
             ProcessingStage::Finalizing => "Finalizing and cleaning up...".to_string(),
             ProcessingStage::Completed => "Processing completed successfully".to_string(),
@@ -134,6 +186,9 @@ impl ProcessingProgress {
             ProcessingStage::ProcessingVariations { current, total, .. } => {
                 15.0 + ((*current as f32 / *total as f32) * 70.0)
             }
+            ProcessingStage::BatchStarted { .. } => self.percent, // Keep current percentage
+            ProcessingStage::BatchPaused { .. } => self.percent,  // Keep current percentage
+            ProcessingStage::BatchCompleted { .. } => self.percent, // Keep current percentage
             ProcessingStage::Finalizing => 90.0,
             ProcessingStage::Completed => 100.0,
             ProcessingStage::Failed(_) => self.percent, // Keep current percentage
