@@ -432,6 +432,17 @@ impl ProcessingResult {
             successful_products,
             failed_products,
         })
-        .await
+        .await?;
+        let percent = (batch_number as f32 / total_batches as f32) * 100.0;
+        println!(
+            "{}",
+            format!(
+                "Batch {} of {} completed: {} successful, {} failed. Progress: {:.2}%",
+                batch_number, total_batches, successful_products, failed_products, percent
+            )
+            .bright_green()
+        );
+        self.progress_manager.set_progress_percent_2(&self.file_id, percent).await?;
+        Ok(())
     }
 }

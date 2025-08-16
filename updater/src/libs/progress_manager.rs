@@ -334,13 +334,24 @@ impl ProgressManager {
             .await?;
 
         // Also store simple percentage for quick access
-        conn.set_ex(
-            format!("progress:percent:{}", progress.file_id),
-            progress.percent,
-            3600,
-        )
-        .await?;
+        self.set_progress_percent(progress).await?;
 
+        Ok(())
+    }
+
+    pub async fn set_progress_percent(&self, progress: &ProcessingProgress) -> RedisResult<()> {
+        let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
+        conn.set_ex::<_, _, ()>(format!("progress:percent:{}", progress.file_id), progress.percent, 3600)
+            .await?;
+        Ok(())
+    }
+    
+    pub async fn set_progress_percent_2(&self, file_id: &str, percent: f32) -> RedisResult<()> {
+        if let Ok(mut progress) = self.get_progress(file_id).await {
+            let mut conn = self.redis_client.get_multiplexed_async_connection().await?;
+            conn.set_ex::<_, _, ()>(format!("progress:percent:{}", file_id), percent, 3600)
+                .await?;
+        }
         Ok(())
     }
 
