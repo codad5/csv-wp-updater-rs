@@ -1,26 +1,26 @@
 use crate::types::woocommerce::{ProductVariation, WooCommerceProduct};
 
 #[derive(Debug, Clone)]
-struct ProductBatch {
+pub struct ProductBatch {
     products: Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
     total_product_count: usize,
 }
 
 impl ProductBatch {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             products: Vec::new(),
             total_product_count: 0,
         }
     }
     
-    fn add_product_family(&mut self, parent: WooCommerceProduct, children: Vec<ProductVariation>) {
+    pub fn add_product_family(&mut self, parent: WooCommerceProduct, children: Vec<ProductVariation>) {
         let family_size = 1 + children.len(); // parent + children
         self.total_product_count += family_size;
         self.products.push((parent, children));
     }
     
-    fn would_exceed_limit(&self, family_size: usize, batch_size: usize) -> bool {
+    pub fn would_exceed_limit(&self, family_size: usize, batch_size: usize) -> bool {
         // If this batch is empty, always allow (even if family exceeds batch_size)
         if self.products.is_empty() {
             return false;
@@ -29,11 +29,11 @@ impl ProductBatch {
         self.total_product_count + family_size > batch_size
     }
     
-    fn get_products(&self) -> &Vec<(WooCommerceProduct, Vec<ProductVariation>)> {
+    pub fn get_products(&self) -> &Vec<(WooCommerceProduct, Vec<ProductVariation>)> {
         &self.products
     }
     
-    fn get_total_count(&self) -> usize {
+    pub fn get_total_count(&self) -> usize {
         self.total_product_count
     }
 }

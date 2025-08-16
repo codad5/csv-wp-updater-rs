@@ -1,5 +1,6 @@
 use crate::helper::file_helper::get_upload_path;
 use crate::helper::{calculate_hash, clean_string};
+use crate::libs::batcher::create_product_batches;
 use crate::libs::processing_result::FailedRow;
 use crate::libs::redis::FileProcessingManager;
 use crate::types::csv_field_woo_mapper::{AttributeMapping, WordPressFieldMapping};
@@ -603,278 +604,285 @@ impl WooCommerceProcessor {
         products_with_children: Vec<(WooCommerceProduct, Vec<ProductVariation>)>,
         new_product: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let total_products = products_with_children.len();
-        let mut processed_products = 0;
-        let semaphore = Arc::new(Semaphore::new(100));
-        let mut parent_futures: Vec<(usize, tokio::task::JoinHandle<()>)> = Vec::new();
-        let total_batches = parent_futures.len();
+        // Create batches first
+        let total_product = products_with_children.len();
+        let batches = create_product_batches(products_with_children, self.batch_size);
+        let total_batches = batches.len();
 
         println!(
             "{}",
-            format!("👨‍👩‍👧‍👦 Processing {} products with variations", total_products).blue()
+            format!(
+                "👨‍👩‍👧‍👦 Processing {} products with variations in {} batches",
+                batches.iter().map(|b| b.get_total_count()).sum::<usize>(),
+                total_batches
+            )
+            .blue()
         );
 
-        for (index, (parent, children)) in products_with_children.into_iter().enumerate() {
-            processed_products += 1;
-            // let current_index = index + 1;
-            let total_products_in_group = 1 + children.len(); // parent + children count
-                                                              // Update progress
+        let semaphore = Arc::new(Semaphore::new(100));
+        let delay_minutes = self.batch_delay_minutes;
+        // let batches = Arc::new(batches);
 
-            let semaphore_clone = Arc::clone(&semaphore);
-            let self_clone = Arc::clone(self);
+        // Process each batch
+        for (batch_index, batch) in batches.iter().enumerate() {
+            // let batch = Arc::clone(&batch);
+            let batch_number = batch_index + 1;
 
-            let parent_task = tokio::spawn(async move {
-                let _permit = semaphore_clone.acquire().await.unwrap();
-                let start_time = Instant::now();
-
-                self_clone
-                    .start_processing_product(
-                        parent.sku.clone(),
-                        processed_products,
-                        total_products,
+            // Add delay before processing (except for first batch)
+            if batch_index > 0 && delay_minutes > 0 {
+                println!(
+                    "{}",
+                    format!(
+                        "⏳ Batch complete. Waiting {} minutes before next batch...",
+                        delay_minutes
                     )
-                    .await
-                    .unwrap_or(());
+                    .yellow()
+                );
+                self.pause_for_batch(batch_number - 1, total_batches, delay_minutes)
+                    .await?;
+                tokio::time::sleep(Duration::from_secs(delay_minutes as u64 * 60)).await;
+            }
 
-                if let Ok(mut redis_conn) = self_clone
-                    .redis_client
-                    .get_multiplexed_async_connection()
-                    .await
-                {
-                    // Check for existing product first
-                    let mut parent_id = parent.id.clone();
-                    if let Some(prod_id) =
-                        Self::compare_product_last_instance(&parent, &mut redis_conn).await
+            self.start_batch(batch_number, total_batches, batch.get_total_count())
+                .await?;
+
+            let mut batch_futures: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+            let mut processed_products = (batch_index * self.batch_size) as usize;
+
+            // Process all product families in this batch
+            for (parent, children) in batch.get_products() {
+                processed_products += 1;
+                let semaphore_clone = Arc::clone(&semaphore);
+                let self_clone = Arc::clone(self);
+                let parent = parent.clone();
+                let children = children.clone();
+                // let batch_total_product = batch.get_total_count();
+
+                let parent_task = tokio::spawn(async move {
+                    let _permit = semaphore_clone.acquire().await.unwrap();
+                    let start_time = Instant::now();
+
+                    self_clone
+                        .start_processing_product(
+                            parent.sku.clone(),
+                            processed_products,
+                            total_product,
+                        )
+                        .await
+                        .unwrap_or(());
+
+                    if let Ok(mut redis_conn) = self_clone
+                        .redis_client
+                        .get_multiplexed_async_connection()
+                        .await
                     {
-                        parent_id = prod_id;
-                        println!(
-                            "{}",
-                            format!("♻️ Reusing existing parent: {}", parent.sku).yellow()
-                        );
-                    } else {
-                        // Process parent product
-                        match self_clone
-                            .handle_main_product(&parent, &mut redis_conn, &new_product)
-                            .await
+                        // Check for existing product first
+                        let mut parent_id = parent.id.clone();
+                        if let Some(prod_id) =
+                            Self::compare_product_last_instance(&parent, &mut redis_conn).await
                         {
-                            Ok(updated_parent) => {
-                                parent_id = updated_parent.id.clone();
-
-                                // Cache the result
-                                let json_body = serde_json::to_string(&updated_parent)
-                                    .unwrap_or("{}".to_string());
-                                let _: () = redis_conn
-                                    .hset("products", &updated_parent.sku, json_body)
-                                    .await
-                                    .unwrap_or(());
-                                let saved_json_body =
-                                    serde_json::to_string(&parent).unwrap_or("{}".to_string());
-                                let _: () = redis_conn
-                                    .hset(
-                                        "products:sha",
-                                        &updated_parent.sku,
-                                        calculate_hash(saved_json_body),
-                                    )
-                                    .await
-                                    .unwrap_or(());
-                                let _: () = redis_conn
-                                    .hset(
-                                        "products:id",
-                                        &updated_parent.sku,
-                                        updated_parent.id.clone(),
-                                    )
-                                    .await
-                                    .unwrap_or(());
-
-                                // Mark parent as processed
-                                self_clone
-                                    .mark_product_processed(
-                                        parent.sku.clone(),
-                                        ProductProcessType::Parent,
-                                        processed_products,
-                                        start_time,
-                                    )
-                                    .await
-                                    .unwrap_or(());
-
-                                println!(
-                                    "{}",
-                                    format!("✅ Parent processed: {}", parent.sku).green()
-                                );
-                            }
-                            Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("❌ Parent failed: {} - {}", parent.sku, e).red()
-                                );
-                                self_clone
-                                    .mark_failure(
-                                        processed_products,
-                                        format!("Parent processing failed: {}", e),
-                                        Some(parent.sku.clone()),
-                                    )
-                                    .await
-                                    .unwrap_or(());
-                                return;
-                            }
-                        }
-                    }
-
-                    // Process child variations
-                    for (child_index, child) in children.iter().enumerate() {
-                        processed_products += 1;
-                        let child_start = Instant::now();
-
-                        // Update progress for variation
-                        self_clone
-                            .start_processing_variation(
-                                child.sku.clone(),
-                                parent.sku.clone(),
-                                child_index + 1,
-                                children.len(),
-                            )
-                            .await
-                            .unwrap_or(());
-
-                        // Check for existing variation first
-                        if let Some(_existing_id) =
-                            Self::compare_product_variation_last_instance(child, &mut redis_conn)
-                                .await
-                        {
+                            parent_id = prod_id;
                             println!(
                                 "{}",
-                                format!("♻️ Reusing existing variation: {}", child.sku).yellow()
+                                format!("♻️ Reusing existing parent: {}", parent.sku).yellow()
                             );
-                            continue;
+                        } else {
+                            // Process parent product
+                            match self_clone
+                                .handle_main_product(&parent, &mut redis_conn, &new_product)
+                                .await
+                            {
+                                Ok(updated_parent) => {
+                                    parent_id = updated_parent.id.clone();
+
+                                    // Cache the result
+                                    let json_body = serde_json::to_string(&updated_parent)
+                                        .unwrap_or("{}".to_string());
+                                    let _: () = redis_conn
+                                        .hset("products", &updated_parent.sku, json_body)
+                                        .await
+                                        .unwrap_or(());
+                                    let saved_json_body =
+                                        serde_json::to_string(&parent).unwrap_or("{}".to_string());
+                                    let _: () = redis_conn
+                                        .hset(
+                                            "products:sha",
+                                            &updated_parent.sku,
+                                            calculate_hash(saved_json_body),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+                                    let _: () = redis_conn
+                                        .hset(
+                                            "products:id",
+                                            &updated_parent.sku,
+                                            updated_parent.id.clone(),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+
+                                    // Mark parent as processed
+                                    self_clone
+                                        .mark_product_processed(
+                                            parent.sku.clone(),
+                                            ProductProcessType::Parent,
+                                            processed_products,
+                                            start_time,
+                                        )
+                                        .await
+                                        .unwrap_or(());
+
+                                    println!(
+                                        "{}",
+                                        format!("✅ Parent processed: {}", parent.sku).green()
+                                    );
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "{}",
+                                        format!("❌ Parent failed: {} - {}", parent.sku, e).red()
+                                    );
+                                    self_clone
+                                        .mark_failure(
+                                            processed_products,
+                                            format!("Parent processing failed: {}", e),
+                                            Some(parent.sku.clone()),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+                                    return;
+                                }
+                            }
                         }
 
-                        match self_clone
-                            .handle_variation_product(
-                                child,
-                                &parent_id,
-                                &mut redis_conn,
-                                &new_product,
-                            )
-                            .await
-                        {
-                            Ok(updated_child) => {
-                                // Cache the result
-                                let json_body = serde_json::to_string(&updated_child)
-                                    .unwrap_or("{}".to_string());
-                                let _: () = redis_conn
-                                    .hset("products", &updated_child.sku, json_body)
-                                    .await
-                                    .unwrap_or(());
-                                let saved_json_body =
-                                    serde_json::to_string(&child).unwrap_or("{}".to_string());
-                                let _: () = redis_conn
-                                    .hset(
-                                        "products:sha",
-                                        &updated_child.sku,
-                                        calculate_hash(saved_json_body),
-                                    )
-                                    .await
-                                    .unwrap_or(());
-                                let _: () = redis_conn
-                                    .hset(
-                                        "products:id",
-                                        &updated_child.sku,
-                                        updated_child.id.clone(),
-                                    )
-                                    .await
-                                    .unwrap_or(());
+                        // Process child variations
+                        for (child_index, child) in children.iter().enumerate() {
+                            let child_start = Instant::now();
 
-                                // Mark variation as processed
-                                self_clone
-                                    .mark_product_processed(
-                                        child.sku.clone(),
-                                        ProductProcessType::Child,
-                                        processed_products,
-                                        child_start,
-                                    )
-                                    .await
-                                    .unwrap_or(());
+                            // Update progress for variation
+                            self_clone
+                                .start_processing_variation(
+                                    child.sku.clone(),
+                                    parent.sku.clone(),
+                                    child_index + 1,
+                                    children.len(),
+                                )
+                                .await
+                                .unwrap_or(());
 
+                            // Check for existing variation first
+                            if let Some(_existing_id) =
+                                Self::compare_product_variation_last_instance(
+                                    child,
+                                    &mut redis_conn,
+                                )
+                                .await
+                            {
                                 println!(
                                     "{}",
-                                    format!(
-                                        "✅ Variation processed: {} ({}/{})",
-                                        child.sku,
-                                        child_index + 1,
-                                        children.len()
-                                    )
-                                    .green()
+                                    format!("♻️ Reusing existing variation: {}", child.sku)
+                                        .yellow()
                                 );
+                                continue;
                             }
-                            Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("❌ Variation failed: {} - {}", child.sku, e).red()
-                                );
-                                self_clone
-                                    .mark_failure(
-                                        0,
-                                        format!("Variation processing failed: {}", e),
-                                        Some(child.sku.clone()),
-                                    )
-                                    .await
-                                    .unwrap_or(());
+
+                            match self_clone
+                                .handle_variation_product(
+                                    child,
+                                    &parent_id,
+                                    &mut redis_conn,
+                                    &new_product,
+                                )
+                                .await
+                            {
+                                Ok(updated_child) => {
+                                    // Cache the result
+                                    let json_body = serde_json::to_string(&updated_child)
+                                        .unwrap_or("{}".to_string());
+                                    let _: () = redis_conn
+                                        .hset("products", &updated_child.sku, json_body)
+                                        .await
+                                        .unwrap_or(());
+                                    let saved_json_body =
+                                        serde_json::to_string(&child).unwrap_or("{}".to_string());
+                                    let _: () = redis_conn
+                                        .hset(
+                                            "products:sha",
+                                            &updated_child.sku,
+                                            calculate_hash(saved_json_body),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+                                    let _: () = redis_conn
+                                        .hset(
+                                            "products:id",
+                                            &updated_child.sku,
+                                            updated_child.id.clone(),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+
+                                    // Mark variation as processed
+                                    self_clone
+                                        .mark_product_processed(
+                                            child.sku.clone(),
+                                            ProductProcessType::Child,
+                                            processed_products + child_index + 1,
+                                            child_start,
+                                        )
+                                        .await
+                                        .unwrap_or(());
+
+                                    println!(
+                                        "{}",
+                                        format!(
+                                            "✅ Variation processed: {} ({}/{})",
+                                            child.sku,
+                                            child_index + 1,
+                                            children.len()
+                                        )
+                                        .green()
+                                    );
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "{}",
+                                        format!("❌ Variation failed: {} - {}", child.sku, e).red()
+                                    );
+                                    self_clone
+                                        .mark_failure(
+                                            0,
+                                            format!("Variation processing failed: {}", e),
+                                            Some(child.sku.clone()),
+                                        )
+                                        .await
+                                        .unwrap_or(());
+                                }
                             }
                         }
                     }
-                }
-            });
+                });
 
-            parent_futures.push((total_products_in_group, parent_task));
-        }
-
-        let mut current_batch_product_count = 0;
-        let mut current_batch_index = 0;
-        let batch_size = self.batch_size as usize;
-        let delay_minutes = self.batch_delay_minutes;
-        // Wait for all tasks to complete
-        for (product_count_in_group, task) in parent_futures {
-            current_batch_index += 1;
-            // Check if adding this group would exceed batch size
-            if current_batch_product_count + product_count_in_group > batch_size
-                && current_batch_product_count > 0
-            {
-                // Delay before processing next batch
-                if delay_minutes > 0 {
-                    println!(
-                        "{}",
-                        format!(
-                    "⏳ Batch complete ({} products). Waiting {} minutes before next batch...",
-                    current_batch_product_count, delay_minutes
-                )
-                        .yellow()
-                    );
-                    self.pause_for_batch(
-                        current_batch_index,
-                        total_batches,
-                        self.batch_delay_minutes,
-                    )
-                    .await?;
-                    tokio::time::sleep(Duration::from_secs(delay_minutes as u64 * 60)).await;
-                }
-                current_batch_product_count = 0; // Reset counter
+                batch_futures.push(parent_task);
             }
 
-            self.start_batch(
-                current_batch_index,
-                total_batches,
-                current_batch_product_count,
-            )
-            .await?;
+            // Wait for all tasks in this batch to complete
+            let mut successful = 0;
+            let mut failed = 0;
 
-            // Execute the task
-            if let Err(e) = task.await {
-                println!("{}", format!("Task execution error: {:?}", e).red());
-                self.mark_failure(0, format!("Task execution failed: {}", e), None)
-                    .await?;
+            for task in batch_futures {
+                if let Err(e) = task.await {
+                    println!("{}", format!("Task execution error: {:?}", e).red());
+                    failed += 1;
+                    self.mark_failure(0, format!("Task execution failed: {}", e), None)
+                        .await?;
+                } else {
+                    successful += 1;
+                }
             }
 
-            current_batch_product_count += product_count_in_group;
+            self.complete_batch(batch_number, total_batches, successful, failed)
+                .await?;
         }
 
         Ok(())
